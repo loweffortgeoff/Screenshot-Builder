@@ -15,7 +15,7 @@ enum ShotRenderer {
     static func compose(shot: Shot, style: SetStyle, sourceSize: CGSize) -> Composition {
         let size = style.size
         let unit = min(size.width, size.height)
-        let margin = unit * 0.065
+        let margin = unit * 0.045
         let textWidth = size.width - margin * 2
         let hasCaption = style.layout != .imageOnly
         // Canvas type scales with output pixels. Editor controls use semantic SwiftUI fonts.
@@ -25,9 +25,9 @@ enum ShotRenderer {
         let subHeight = shot.subtitle.isEmpty ? 0 : measuredHeight(subtitle, width: textWidth)
         let gap = headHeight > 0 && subHeight > 0 ? unit * 0.018 : 0
         let needed = headHeight + subHeight + gap
-        let maxCaption = size.height * 0.22
+        let maxCaption = min(size.height * 0.22, unit * 0.30)
         let captionHeight = hasCaption ? maxCaption : 0
-        let separation = hasCaption ? unit * 0.05 : 0
+        let separation = hasCaption ? unit * 0.025 : 0
         let imageArea = CGRect(x: margin, y: margin + (style.layout == .above ? captionHeight + separation : 0),
                                width: textWidth, height: size.height - 2 * margin - captionHeight - separation)
         let border = style.frame ? unit * 0.014 : 0

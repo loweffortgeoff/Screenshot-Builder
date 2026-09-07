@@ -7,3 +7,4 @@
 
 ## Done
 - 2026-09-07 — Implemented and verified the approved Screenshot Builder v1.
+- 2026-09-07 — Tightened screenshot composition for short captions.
