@@ -63,6 +63,10 @@ enum ShotRenderer {
         var highlight: CGRect = .zero
         var marker: CalloutMarker = .spotlight
         var lens: LensStyle = .lens
+        /// The device screen, so the editor can turn a dragged ring back into a unit rect.
+        var screen: CGRect = .zero
+        /// The card's automatic place, before the user's offset, so the editor can compute a new offset.
+        var autoRect: CGRect = .zero
     }
 
     /// Card border width for a canvas, the one white border in a Zoom shot.
@@ -108,8 +112,8 @@ enum ShotRenderer {
             gap = unit * 0.022 * style.textSize.scale
             separation = unit * 0.038
             // Room for two headline lines and two subtitle lines.
-            let head = CaptionFont.lineHeight(style.font.font(size: headSize, weight: style.weight.nsWeight)) * 0.96
-            let sub = CaptionFont.lineHeight(style.font.font(size: subSize, weight: .medium)) * 1.08
+            let head = CaptionFont.lineHeight(style.headlineFont(size: headSize)) * 0.96
+            let sub = CaptionFont.lineHeight(style.subtitleFont(size: subSize)) * 1.08
             maxBand = head * 2 + gap + sub * 2
         }
     }
@@ -311,6 +315,7 @@ enum ShotRenderer {
             let obstacles = (hasCaption ? [headlineRect, subtitleRect, badgeRect] : [])
                 .filter { $0.width > 0 && $0.height > 0 }.map { $0.insetBy(dx: -pad, dy: -pad) }
             let floorZoom: CGFloat = spec.family == .laptop ? 1.5 : 1.6
+            let custom = shot.calloutRegion == .custom ? shot.calloutRect : nil
             func plan(scale: CGFloat, zoom: CGFloat, maxHeight: CGFloat, allowNarrow: Bool = true)
                 -> (device: Layer, crop: CGRect, highlight: CGRect, card: CGRect, fits: Bool) {
                 var box = scaled(base, scale, dx: -base.width * 0.14)
@@ -324,13 +329,20 @@ enum ShotRenderer {
                 }
                 let device = layer(in: box, capture: sourceSize)
                 let screen = device.imageRect
-                let band = shot.calloutBand(maxHeight: maxHeight)
                 let fitted = safe.width / (zoom * screen.width)
-                let narrow = fitted < 1
-                if narrow && !allowNarrow { return (device, .zero, .zero, .zero, false) }
-                let cropX: CGFloat = narrow ? 0.02 : 0
-                let cropRight = narrow ? shot.calloutRightEdge(top: band.top, bottom: band.bottom, limit: min(cropX + fitted, 1)) : 1
-                let crop = CGRect(x: cropX, y: band.top, width: cropRight - cropX, height: band.bottom - band.top)
+                let crop: CGRect
+                if let custom {
+                    // The user chose this region; never narrow it. Shrink the device or lower the zoom instead.
+                    if custom.width > fitted { return (device, .zero, .zero, .zero, false) }
+                    crop = custom
+                } else {
+                    let band = shot.calloutBand(maxHeight: maxHeight)
+                    let narrow = fitted < 1
+                    if narrow && !allowNarrow { return (device, .zero, .zero, .zero, false) }
+                    let cropX: CGFloat = narrow ? 0.02 : 0
+                    let cropRight = narrow ? shot.calloutRightEdge(top: band.top, bottom: band.bottom, limit: min(cropX + fitted, 1)) : 1
+                    crop = CGRect(x: cropX, y: band.top, width: cropRight - cropX, height: band.bottom - band.top)
+                }
                 let highlight = CGRect(x: screen.minX + crop.minX * screen.width, y: screen.minY + crop.minY * screen.height,
                                        width: crop.width * screen.width, height: crop.height * screen.height)
                 let cardWidth = zoom * highlight.width
@@ -355,7 +367,9 @@ enum ShotRenderer {
             var chosen: (device: Layer, crop: CGRect, highlight: CGRect, card: CGRect, fits: Bool)?
             // Whole rows read as UI; a narrowed band shows labels without their values. Shrink the device to keep
             // full rows, and narrow the band only when no device size fits (wide captures).
-            let passes: [([CGFloat], Bool)] = [([0.92, 0.84, 0.76, 0.70, 0.66, 0.62, 0.58], false), ([0.92, 0.84, 0.76, 0.68], true)]
+            let passes: [([CGFloat], Bool)] = custom != nil
+                ? [([0.92, 0.84, 0.76, 0.70, 0.66, 0.62, 0.58, 0.54, 0.5], false)]
+                : [([0.92, 0.84, 0.76, 0.70, 0.66, 0.62, 0.58], false), ([0.92, 0.84, 0.76, 0.68], true)]
             search: for (scales, allowNarrow) in passes {
                 for scale in scales {
                     for zoom in zooms {
@@ -366,7 +380,8 @@ enum ShotRenderer {
                     }
                 }
             }
-            var final = chosen ?? plan(scale: 0.92, zoom: zooms[0], maxHeight: 0.24)
+            // A custom region too wide for the floor zoom at any device size gets the zoom that fits.
+            var final = chosen ?? (custom != nil ? plan(scale: 0.6, zoom: 1.2, maxHeight: 0.24) : plan(scale: 0.92, zoom: zooms[0], maxHeight: 0.24))
             // Center device and card together, moving only away from the caption, so slack does not pool on one side.
             if hasCaption, chosen != nil {
                 let group = final.device.frame.union(final.card)
@@ -379,8 +394,22 @@ enum ShotRenderer {
                 }
             }
             layers = [final.device]
+            let autoRect = final.card
+            if let offset = shot.calloutCardOffset {
+                // A user-placed card: keep it on the canvas safe area and off the caption, nothing else.
+                var card = autoRect.offsetBy(dx: offset.x * size.width, dy: offset.y * size.height)
+                card.origin.x = min(max(card.minX, safe.minX), safe.maxX - card.width)
+                card.origin.y = min(max(card.minY, safe.minY), safe.maxY - card.height)
+                if obstacles.contains(where: { $0.intersects(card) }),
+                   let blocked = obstacles.reduce(nil, { (acc: CGRect?, r) in acc.map { $0.union(r) } ?? r }) {
+                    card.origin.y = style.layout.captionOnTop ? blocked.maxY : blocked.minY - card.height
+                    card.origin.y = min(max(card.minY, safe.minY), safe.maxY - card.height)
+                }
+                final.card = card
+            }
             callout = Callout(rect: final.card, source: final.crop, cornerRadius: final.card.width * 0.045,
-                              highlight: final.highlight, marker: shot.calloutMarker, lens: shot.lensStyle)
+                              highlight: final.highlight, marker: shot.calloutMarker, lens: shot.lensStyle,
+                              screen: final.device.imageRect, autoRect: autoRect)
         }
         // Keep rotated or enlarged devices clear of the caption: shift the group away from the caption side.
         if hasCaption, arrangement != .callout, let bounds = layers.map(\.bounds).reduce(nil, { (acc: CGRect?, r) in acc.map { $0.union(r) } ?? r }) {
@@ -772,7 +801,7 @@ enum ShotRenderer {
 
     /// Headline text. Words wrapped in *asterisks* take the accent color.
     static func headlineText(_ text: String, accents: [String] = [], style: SetStyle, size: CGFloat) -> NSAttributedString {
-        let font = style.font.font(size: size, weight: style.weight.nsWeight)
+        let font = style.headlineFont(size: size)
         let output = NSMutableAttributedString()
         let base = attributes(style: style, font: font, color: style.foreground.nsColor, lineHeight: 0.96)
         for (index, part) in text.components(separatedBy: "*").enumerated() where !part.isEmpty {
@@ -794,13 +823,13 @@ enum ShotRenderer {
         let a = style.accent
         let luminance = 0.2126 * a.red + 0.7152 * a.green + 0.0722 * a.blue
         return NSAttributedString(string: text, attributes: [
-            .font: style.font.font(size: size, weight: .bold),
+            .font: style.font.font(size: size, weight: CaptionWeight.bold),
             .foregroundColor: luminance > 0.55 ? NSColor.black : NSColor.white,
             .kern: size * 0.08])
     }
 
     static func subtitleText(_ text: String, style: SetStyle, size: CGFloat) -> NSAttributedString {
-        let font = style.font.font(size: size, weight: .medium)
+        let font = style.subtitleFont(size: size)
         return NSAttributedString(string: text.replacingOccurrences(of: "*", with: ""),
                                   attributes: attributes(style: style, font: font,
                                                          color: style.foreground.nsColor.withAlphaComponent(0.82), lineHeight: 1.08))

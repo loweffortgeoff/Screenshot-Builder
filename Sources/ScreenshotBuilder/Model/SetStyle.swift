@@ -45,13 +45,97 @@ enum CaptionFont: String, Codable, CaseIterable, Identifiable {
 
 extension CaptionFont {
     static func lineHeight(_ font: NSFont) -> CGFloat { ceil(font.ascender - font.descender + font.leading) }
+
+    /// One real, upright, regular-width face of a family.
+    struct Face: Equatable {
+        let weight: CaptionWeight
+        /// PostScript name for installed families; empty for the system designs, which resolve by weight.
+        let postScriptName: String
+        let styleName: String
+    }
+
+    private static let facesByFont: [CaptionFont: [Face]] = Dictionary(uniqueKeysWithValues: allCases.map { ($0, $0.loadFaces()) })
+
+    /// Weights the family really has, lightest first. Asking a family for a weight it lacks returns a near face
+    /// (Futura "Heavy" is Bold) or a condensed one (Futura "Black" is Condensed ExtraBold), so only these are offered.
+    var faces: [Face] { Self.facesByFont[self] ?? [] }
+    var realWeights: [CaptionWeight] { faces.map(\.weight) }
+    /// Headline choices: every real weight except the lightest, so the subtitle always has a lighter face.
+    var headlineWeights: [CaptionWeight] { realWeights.count > 1 ? Array(realWeights.dropFirst()) : realWeights }
+
+    /// The offered headline weight nearest a stored one. Ties go heavier.
+    func resolve(_ stored: CaptionWeight) -> CaptionWeight {
+        headlineWeights.min { a, b in
+            let da = abs(a.rank - stored.rank), db = abs(b.rank - stored.rank)
+            return da != db ? da < db : a.rank > b.rank
+        } ?? stored
+    }
+
+    /// A lighter real face than the headline, preferring the heaviest one at or below Medium.
+    func subtitleWeight(for headline: CaptionWeight) -> CaptionWeight {
+        let lighter = realWeights.filter { $0.rank < resolve(headline).rank }
+        return lighter.last { $0.rank <= CaptionWeight.medium.rank } ?? lighter.last ?? resolve(headline)
+    }
+
+    /// The face's own name, such as "Demi Bold".
+    func faceName(_ weight: CaptionWeight) -> String {
+        faces.first { $0.weight == weight }?.styleName ?? weight.rawValue
+    }
+
+    func font(size: CGFloat, weight: CaptionWeight) -> NSFont {
+        if let face = faces.first(where: { $0.weight == weight }), !face.postScriptName.isEmpty,
+           let font = NSFont(name: face.postScriptName, size: size) {
+            return font
+        }
+        return font(size: size, weight: weight.nsWeight)
+    }
+
+    private func loadFaces() -> [Face] {
+        switch self {
+        case .system, .rounded, .serif, .condensed:
+            // SF, SF Rounded, New York, and SF Condensed carry every weight from Regular to Black.
+            return CaptionWeight.allCases.map { Face(weight: $0, postScriptName: "", styleName: $0.rawValue) }
+        case .avenir, .futura, .helvetica, .georgia:
+            let rejected = NSFontTraitMask([.italicFontMask, .condensedFontMask, .narrowFontMask, .compressedFontMask, .expandedFontMask])
+            var faces: [Face] = []
+            for member in NSFontManager.shared.availableMembers(ofFontFamily: rawValue) ?? [] {
+                guard member.count >= 4, let name = member[0] as? String, let style = member[1] as? String,
+                      let managerWeight = member[2] as? Int, let traits = member[3] as? UInt,
+                      NSFontTraitMask(rawValue: traits).intersection(rejected).isEmpty,
+                      let weight = CaptionWeight(managerWeight: managerWeight),
+                      !faces.contains(where: { $0.weight == weight }) else { continue }
+                faces.append(Face(weight: weight, postScriptName: name, styleName: style))
+            }
+            return faces.sorted { $0.weight.rank < $1.weight.rank }
+        }
+    }
 }
 
 enum CaptionWeight: String, Codable, CaseIterable, Identifiable {
-    case semibold = "Semibold", bold = "Bold", heavy = "Heavy", black = "Black"
+    case regular = "Regular", medium = "Medium", semibold = "Semibold", bold = "Bold", heavy = "Heavy", black = "Black"
     var id: Self { self }
+    var rank: Int { Self.allCases.firstIndex(of: self)! }
     var nsWeight: NSFont.Weight {
-        switch self { case .semibold: .semibold; case .bold: .bold; case .heavy: .heavy; case .black: .black }
+        switch self {
+        case .regular: .regular
+        case .medium: .medium
+        case .semibold: .semibold
+        case .bold: .bold
+        case .heavy: .heavy
+        case .black: .black
+        }
+    }
+    /// Buckets NSFontManager's 0–15 weight scale. Light faces (below 5) are not caption weights.
+    init?(managerWeight: Int) {
+        switch managerWeight {
+        case 5: self = .regular
+        case 6...7: self = .medium
+        case 8: self = .semibold
+        case 9: self = .bold
+        case 10...11: self = .heavy
+        case 12...: self = .black
+        default: return nil
+        }
     }
 }
 
@@ -110,6 +194,10 @@ struct SetStyle: Codable, Equatable {
         return landscape && preset != .mac ? CGSize(width: base.height, height: base.width) : base
     }
     var dimensionLabel: String { "\(Int(size.width)) × \(Int(size.height))" }
+
+    /// The real faces captions draw with; a stored weight the family lacks maps to its nearest real face.
+    func headlineFont(size: CGFloat) -> NSFont { font.font(size: size, weight: font.resolve(weight)) }
+    func subtitleFont(size: CGFloat) -> NSFont { font.font(size: size, weight: font.subtitleWeight(for: weight)) }
 
     /// The theme this style matches exactly, if any.
     var theme: Theme? {

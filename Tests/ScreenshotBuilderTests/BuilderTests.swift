@@ -294,7 +294,76 @@ struct BuilderTests {
                 #expect(font.font(size: 40, weight: weight.nsWeight).pointSize == 40)
             }
         }
-        #expect(CaptionFont.rounded.font(size: 40, weight: .heavy).fontName.contains("Rounded"))
+        #expect(CaptionFont.rounded.font(size: 40, weight: NSFont.Weight.heavy).fontName.contains("Rounded"))
+    }
+
+    @Test func everyOfferedWeightIsADistinctSameWidthFace() {
+        for family in CaptionFont.allCases {
+            let real = family.realWeights.map { family.font(size: 40, weight: $0) }
+            #expect(!real.isEmpty, "\(family) has faces")
+            // Installed families must not repeat a face; the system designs resolve one face per weight trait.
+            if family.faces.allSatisfy({ !$0.postScriptName.isEmpty }) {
+                #expect(Set(real.map(\.fontName)).count == real.count, "\(family) faces are distinct")
+            }
+            for font in real where family != .condensed {
+                #expect(!font.fontDescriptor.symbolicTraits.contains(.condensed), "\(family) \(font.fontName) is not condensed")
+            }
+            for weight in family.headlineWeights {
+                let subtitle = family.subtitleWeight(for: weight)
+                #expect(subtitle.rank < weight.rank, "\(family) subtitle is lighter than \(weight)")
+                #expect(family.font(size: 40, weight: subtitle).fontName != family.font(size: 40, weight: weight).fontName
+                        || family.faces.contains { $0.postScriptName.isEmpty })
+            }
+        }
+    }
+
+    @Test func storedWeightMapsToNearestRealFace() {
+        #expect(CaptionFont.futura.resolve(.heavy) == .bold)
+        #expect(CaptionFont.futura.resolve(.black) == .bold)
+        #expect(CaptionFont.futura.font(size: 40, weight: CaptionFont.futura.resolve(.black)).fontName == "Futura-Bold")
+        #expect(CaptionFont.georgia.resolve(.semibold) == .bold)
+        #expect(CaptionFont.georgia.subtitleWeight(for: .black) == .regular)
+        var style = SetStyle()
+        style.font = .georgia
+        style.weight = .heavy
+        #expect(style.headlineFont(size: 40).fontName == "Georgia-Bold")
+        #expect(style.subtitleFont(size: 40).fontName == "Georgia")
+    }
+
+    @Test func customCalloutRectAndCardOffsetRoundTrip() throws {
+        var shot = try fixture()
+        shot.arrangement = .callout
+        shot.calloutRegion = .custom
+        shot.calloutRect = CGRect(x: 0.1, y: 0.3, width: 0.8, height: 0.15)
+        shot.calloutCardOffset = CGPoint(x: -0.05, y: 0.1)
+        let decoded = try JSONDecoder().decode(Shot.self, from: JSONEncoder().encode(shot))
+        #expect(decoded.calloutRegion == .custom)
+        #expect(decoded.calloutRect == shot.calloutRect)
+        #expect(decoded.calloutCardOffset == shot.calloutCardOffset)
+    }
+
+    @Test func customCalloutUsesTheRectAndStaysSafe() throws {
+        var shot = try fixture()
+        shot.arrangement = .callout
+        shot.headline = "A headline long enough to wrap"
+        shot.subtitle = "And a subtitle"
+        shot.calloutRegion = .custom
+        shot.calloutRect = CGRect(x: 0.05, y: 0.4, width: 0.9, height: 0.14)
+        for preset in OutputPreset.allCases {
+            for offset in [CGPoint(x: 2, y: -2), CGPoint(x: -2, y: 2), CGPoint(x: 0, y: -0.6)] {
+                shot.calloutCardOffset = offset
+                var style = SetStyle()
+                style.preset = preset
+                let c = ShotRenderer.compose(shot: shot, style: style, sourceSize: CGSize(width: 200, height: 400))
+                let callout = try #require(c.callout)
+                #expect(callout.source == shot.calloutRect)
+                let metrics = ShotRenderer.CaptionMetrics(style: style)
+                let safe = CGRect(origin: .zero, size: style.size).insetBy(dx: metrics.margin - 0.5, dy: metrics.margin - 0.5)
+                #expect(safe.contains(callout.rect), "\(preset) \(offset) card stays in the safe area")
+                #expect(!callout.rect.intersects(c.headlineRect) && !callout.rect.intersects(c.subtitleRect),
+                        "\(preset) \(offset) card stays off the caption")
+            }
+        }
     }
 
     @Test func highlightTogglesWordsAndKeepsPunctuation() {

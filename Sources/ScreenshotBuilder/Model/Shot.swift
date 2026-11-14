@@ -20,6 +20,10 @@ struct Shot: Codable, Equatable, Identifiable {
     var calloutMarker: CalloutMarker = .spotlight
     /// How a Zoom callout joins its card to the source.
     var lensStyle: LensStyle = .lens
+    /// The magnified part of the capture when the region is Custom, in unit coordinates (top-left origin).
+    var calloutRect: CGRect?
+    /// How far the user dragged the Zoom card from its automatic place, in units of the canvas size.
+    var calloutCardOffset: CGPoint?
     /// Optional short label drawn as an accent pill above the headline, such as "NEW".
     var badge = ""
 
@@ -42,6 +46,8 @@ struct Shot: Codable, Equatable, Identifiable {
         calloutRegion = try c.decodeIfPresent(CalloutRegion.self, forKey: .calloutRegion) ?? .auto
         calloutMarker = try c.decodeIfPresent(CalloutMarker.self, forKey: .calloutMarker) ?? .spotlight
         lensStyle = try c.decodeIfPresent(LensStyle.self, forKey: .lensStyle) ?? .lens
+        calloutRect = try c.decodeIfPresent(CGRect.self, forKey: .calloutRect)
+        calloutCardOffset = try c.decodeIfPresent(CGPoint.self, forKey: .calloutCardOffset)
         badge = try c.decodeIfPresent(String.self, forKey: .badge) ?? ""
     }
 
@@ -97,10 +103,12 @@ enum Arrangement: String, Codable, CaseIterable, Identifiable {
 }
 
 enum CalloutRegion: String, Codable, CaseIterable, Identifiable {
-    case auto = "Auto", top = "Top", middle = "Middle", bottom = "Bottom"
+    case auto = "Auto", top = "Top", middle = "Middle", bottom = "Bottom", custom = "Custom"
     var id: Self { self }
     /// Vertical center of the magnified band, as a fraction of the capture height. Auto resolves per capture.
-    var center: CGFloat { switch self { case .auto, .middle: 0.5; case .top: 0.22; case .bottom: 0.76 } }
+    var center: CGFloat { switch self { case .auto, .middle, .custom: 0.5; case .top: 0.22; case .bottom: 0.76 } }
+    /// The regions a user picks from a menu; Custom comes from dragging the ring.
+    static let presets: [CalloutRegion] = [.auto, .top, .middle, .bottom]
 }
 
 enum CalloutMarker: String, Codable, CaseIterable, Identifiable {
@@ -161,6 +169,26 @@ extension Shot {
     }
 
     var contentBlocks: [ContentBlock] { Shot.contentBlocks(profile: rowProfile) }
+
+    /// A dragged Zoom region, tidied: horizontal extent kept, top and bottom moved into the gaps between content blocks.
+    func snappedCalloutRect(_ rect: CGRect) -> CGRect {
+        let width = min(1, max(0.2, rect.width))
+        let x = min(max(0, rect.minX), 1 - width)
+        let blocks = contentBlocks
+        /// The middle of the gap nearest `value`, or `value` when it already sits in a gap or no gap is near.
+        func gapEdge(near value: CGFloat) -> CGFloat {
+            guard let inside = blocks.first(where: { $0.top < value && value < $0.bottom }) else { return value }
+            let above = blocks.last { $0.bottom <= inside.top }, below = blocks.first { $0.top >= inside.bottom }
+            let up = above.map { ($0.bottom + inside.top) / 2 } ?? max(0, inside.top - 0.005)
+            let down = below.map { (inside.bottom + $0.top) / 2 } ?? min(1, inside.bottom + 0.005)
+            return value - up <= down - value ? up : down
+        }
+        var top = gapEdge(near: rect.minY), bottom = gapEdge(near: rect.maxY)
+        if bottom - top < 0.06 { bottom = min(1, top + 0.06) }
+        if bottom - top > 0.30 { bottom = top + 0.30 }
+        top = min(max(0, top), 1 - (bottom - top))
+        return CGRect(x: x, y: top, width: width, height: min(bottom, 1) - top)
+    }
 
     /// The crop band (unit coordinates) for a Zoom callout: whole blocks, with both edges in the gaps between blocks.
     func calloutBand(maxHeight: CGFloat = 0.24) -> (top: CGFloat, bottom: CGFloat) {

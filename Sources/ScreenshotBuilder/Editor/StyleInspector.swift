@@ -100,11 +100,11 @@ struct StyleInspector: View {
         Section {
             Picker("Font", selection: $style.font) {
                 ForEach(CaptionFont.allCases) { font in
-                    Text(font.rawValue).font(Font(font.font(size: 13, weight: .semibold))).tag(font)
+                    Text(font.rawValue).font(Font(font.font(size: 13, weight: NSFont.Weight.semibold))).tag(font)
                 }
             }
-            Picker("Weight", selection: $style.weight) {
-                ForEach(CaptionWeight.allCases) { Text($0.rawValue).tag($0) }
+            Picker("Weight", selection: Binding(get: { style.font.resolve(style.weight) }, set: { style.weight = $0 })) {
+                ForEach(style.font.headlineWeights) { Text(style.font.faceName($0)).tag($0) }
             }
             LabeledContent("Size") {
                 Picker("Size", selection: $style.textSize) {

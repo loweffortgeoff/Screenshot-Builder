@@ -23,8 +23,11 @@ struct ArrangementInspector: View {
             }
             if shot.arrangement == .callout {
                 LabeledContent("Zoom on") {
-                    Picker("Zoom on", selection: $shot.calloutRegion) {
-                        ForEach(CalloutRegion.allCases) { Text($0.rawValue).tag($0) }
+                    Picker("Zoom on", selection: Binding(get: { shot.calloutRegion }, set: { region in
+                        shot.calloutRegion = region
+                        shot.calloutRect = nil
+                    })) {
+                        ForEach(CalloutRegion.presets) { Text($0.rawValue).tag($0) }
                     }
                     .pickerStyle(.segmented).labelsHidden().frame(maxWidth: 220)
                 }
@@ -39,6 +42,18 @@ struct ArrangementInspector: View {
                         ForEach(LensStyle.allCases) { Text($0.rawValue).tag($0) }
                     }
                     .pickerStyle(.segmented).labelsHidden().frame(maxWidth: 220)
+                }
+                HStack {
+                    Text(shot.calloutRegion == .custom ? "Custom region. Drag the ring or the card on the canvas."
+                                                       : "Drag the ring or the card on the canvas to place them.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Reset position") {
+                        shot.calloutRegion = .auto
+                        shot.calloutRect = nil
+                        shot.calloutCardOffset = nil
+                    }
+                    .disabled(shot.calloutRegion != .custom && shot.calloutCardOffset == nil)
                 }
             }
         } header: {
