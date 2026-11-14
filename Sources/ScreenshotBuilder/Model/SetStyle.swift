@@ -292,7 +292,9 @@ struct SetStyle: Codable, Equatable {
     var dimensionLabel: String { "\(Int(size.width)) × \(Int(size.height))" }
 
     /// Hue shift applies only while the background does not span the set, where it would break the seams.
-    var shiftsHue: Bool { backdrop.hueShift && !spanSet }
+    var shiftsHue: Bool { backdrop.hueShift && !spansBackground }
+    /// Flow across the set only acts on gradients; a solid fill has nothing to join, so it does not block hue shift.
+    var spansBackground: Bool { spanSet && background.kind != .solid }
 
     /// The background shot `index` of `count` draws. With hue shift, each stop turns by (index − middle) × 10°, at most
     /// ±30°, stepping back 5° at a time until the text and accent still pass 3:1 on every stop (or read no worse than on

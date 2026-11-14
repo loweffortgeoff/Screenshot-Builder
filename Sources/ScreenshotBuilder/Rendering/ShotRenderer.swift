@@ -641,7 +641,7 @@ enum ShotRenderer {
                 size *= 0.94
                 row = parts(size)
             }
-            let x = composition == .sideBySide ? sideColumnX : style.alignment == .center ? centered(row.width) : columnX
+            let x = composition == .sideBySide ? sideColumnX : style.alignment == .center ? centered(min(row.width, textWidth)) : columnX
             let lineHeight = CaptionFont.lineHeight(Self.eyebrowFont(style: style, size: size))
             if drawsRule {
                 let thickness = max(2, size * 0.14)
@@ -1110,7 +1110,7 @@ enum ShotRenderer {
                     let content = device.contentRect
                     cg.saveGState()
                     cg.translateBy(x: device.screenRect.minX, y: device.screenRect.minY)
-                    drawBackground(style.background, in: cg, size: device.screenRect.size, position: .single)
+                    drawBackground(fill, in: cg, size: device.screenRect.size, position: .single)
                     cg.restoreGState()
                     cg.setFillColor(CGColor(gray: 0, alpha: 0.18))
                     cg.fill(device.screenRect)

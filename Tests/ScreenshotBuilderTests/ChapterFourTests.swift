@@ -174,6 +174,7 @@ struct ChapterFourTests {
         style.decor.appName = String(repeating: "Very long app name ", count: 8)
         let c = ShotRenderer.compose(shot: try fixture(), style: style, sourceSize: phoneSource)
         #expect(c.eyebrowRect.maxX <= c.textColumn.maxX + 0.5, "the label stays inside the text column")
+        #expect(c.ruleRect.minX >= c.textColumn.minX - 0.5, "centered, it still starts inside the column")
         #expect(c.advisories.contains { $0.contains("eyebrow is too long") })
         style.decor.appName = "Tucked"
         #expect(!ShotRenderer.compose(shot: try fixture(), style: style, sourceSize: phoneSource).advisories.contains { $0.contains("eyebrow") })
@@ -313,6 +314,9 @@ struct ChapterFourTests {
         style.spanSet = true
         #expect(!style.shiftsHue)
         for index in 0..<5 { #expect(style.background(at: index, of: 5) == style.background) }
+        // A solid fill has nothing to span, so a leftover Flow setting does not block hue shift.
+        style.apply(try #require(Theme.named("Noir")))
+        #expect(style.spanSet && style.shiftsHue)
     }
 
     @Test func backdropDecodesWithDefaultsAndRoundTrips() throws {

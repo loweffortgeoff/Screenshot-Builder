@@ -75,8 +75,8 @@ struct StyleInspector: View {
                 }
                 .padding(.vertical, 4)
                 Toggle("Shift hue per shot", isOn: $style.backdrop.hueShift)
-                    .disabled(style.spanSet)
-                    .help(style.spanSet ? "Flow across the set joins neighbours; a hue shift would break the seams."
+                    .disabled(style.spansBackground)
+                    .help(style.spansBackground ? "Flow across the set joins neighbours; a hue shift would break the seams."
                                         : "Each shot turns the background hue a step further, while text stays readable.")
                 Divider()
                 backgroundControls
