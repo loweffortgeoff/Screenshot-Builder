@@ -11,7 +11,8 @@ struct ArrangementInspector: View {
     var body: some View {
         Section {
             if style.layout.hasCaption {
-                Picker("Composition", selection: $shot.composition) {
+                // Named apart from the set's picker above, so the two do not read as duplicates.
+                Picker("This shot", selection: $shot.composition) {
                     Text("Follow set (\(style.composition.rawValue))").tag(CaptionComposition?.none)
                     Divider()
                     ForEach(CaptionComposition.allCases) { Label($0.rawValue, systemImage: $0.symbol).tag(CaptionComposition?.some($0)) }
