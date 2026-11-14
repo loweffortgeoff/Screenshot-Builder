@@ -184,6 +184,7 @@ struct BuilderTests {
         style.layout = .imageOnly
         style.background = Background(kind: .linear, colors: [RGBColor(0, 0, 0), RGBColor(1, 1, 1)], angle: 0)
         style.spanSet = true
+        style.grain = false
         let shot = try fixture()
         let first = try ShotRenderer.render(shot: shot, style: style, maxDimension: 400, position: .init(index: 0, count: 3))
         let second = try ShotRenderer.render(shot: shot, style: style, maxDimension: 400, position: .init(index: 1, count: 3))

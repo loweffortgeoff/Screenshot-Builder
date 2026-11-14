@@ -53,6 +53,8 @@ struct StyleInspector: View {
                 }
             }
             if style.background.kind != .solid {
+                Toggle("Grain", isOn: $style.grain)
+                    .help("Fine film grain gives gradients texture and hides banding.")
                 Toggle("Flow across the set", isOn: $style.spanSet)
                     .help("One continuous background runs through every screenshot, so neighbours join up.")
             }

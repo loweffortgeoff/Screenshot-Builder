@@ -102,6 +102,8 @@ struct SetStyle: Codable, Equatable {
     var shadow = true
     /// Gradients run across the whole set, so neighbouring shots join up.
     var spanSet = false
+    /// Fine film grain over gradient backgrounds.
+    var grain = true
 
     var size: CGSize {
         let base = preset.size
@@ -154,5 +156,6 @@ struct SetStyle: Codable, Equatable {
         finish = try c.decodeIfPresent(String.self, forKey: .finish) ?? d.finish
         shadow = try c.decodeIfPresent(Bool.self, forKey: .shadow) ?? false
         spanSet = try c.decodeIfPresent(Bool.self, forKey: .spanSet) ?? d.spanSet
+        grain = try c.decodeIfPresent(Bool.self, forKey: .grain) ?? false
     }
 }

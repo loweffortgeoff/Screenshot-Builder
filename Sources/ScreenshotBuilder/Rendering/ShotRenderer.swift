@@ -201,6 +201,7 @@ enum ShotRenderer {
         cg.translateBy(x: 0, y: CGFloat(height))
         cg.scaleBy(x: CGFloat(width) / size.width, y: -CGFloat(height) / size.height)
         drawBackground(style.background, in: cg, size: size, position: style.spanSet ? position : .single)
+        if style.grain && style.background.kind != .solid { drawGrain(in: cg, size: size) }
         let composition = compose(shot: shot, style: style, sourceSize: CGSize(width: source.width, height: source.height),
                                   captionBand: captionBand)
         let image = NSImage(cgImage: source, size: CGSize(width: source.width, height: source.height))
@@ -284,16 +285,60 @@ enum ShotRenderer {
                                       endRadius: hypot(size.width, size.height) * 0.75, options: extend)
             }
         case .mesh:
-            // A two-stop base with soft glows reads as a mesh gradient without a mesh renderer.
+            // A two-stop base with soft colored glows reads as a mesh gradient without a mesh renderer.
+            // Each shot slot uses a different glow pattern, and glows cross slot edges, so a spanning set
+            // reads as one panorama rather than a repeated tile.
             linear([colors[0], colors[min(1, colors.count - 1)]])
             let reach = max(size.width, size.height)
-            let highlight = colors[colors.count - 1]
-            for shot in 0..<Int(count) {
-                let x = field.minX + CGFloat(shot) * size.width
-                glow(highlight, at: CGPoint(x: x + size.width * 0.9, y: size.height * 0.12), radius: reach * 0.55)
-                glow(colors[0], at: CGPoint(x: x + size.width * 0.05, y: size.height * 0.85), radius: reach * 0.45)
+            let patterns: [[(CGFloat, CGFloat, CGFloat, Int)]] = [
+                [(0.88, 0.08, 0.55, 2), (0.08, 0.55, 0.42, 1), (0.62, 0.98, 0.45, 0)],
+                [(1.08, 0.48, 0.50, 2), (0.30, 0.02, 0.44, 1), (0.28, 0.92, 0.42, 2)],
+                [(0.55, 0.22, 0.48, 1), (-0.02, 0.82, 0.48, 2), (0.98, 0.98, 0.40, 0)]
+            ]
+            for slot in 0..<Int(count) {
+                let x = field.minX + CGFloat(slot) * size.width
+                for (fx, fy, radius, index) in patterns[count > 1 ? slot % patterns.count : 0] {
+                    let tone = colors[min(index, colors.count - 1)]
+                    glow(tone.copy(alpha: index == 0 ? 0.7 : 0.9) ?? tone,
+                         at: CGPoint(x: x + size.width * fx, y: size.height * fy), radius: reach * radius)
+                }
             }
         }
+    }
+
+    /// A fixed, seeded noise tile, so grain is identical in preview and export.
+    private static let grainTile: CGImage? = {
+        let side = 256
+        var bytes = [UInt8](repeating: 0, count: side * side)
+        var seed: UInt32 = 0x9E3779B9
+        for i in bytes.indices {
+            seed = seed &* 1_664_525 &+ 1_013_904_223
+            bytes[i] = UInt8(truncatingIfNeeded: seed >> 24)
+        }
+        guard let provider = CGDataProvider(data: Data(bytes) as CFData) else { return nil }
+        return CGImage(width: side, height: side, bitsPerComponent: 8, bitsPerPixel: 8, bytesPerRow: side,
+                       space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.none.rawValue),
+                       provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)
+    }()
+
+    /// Fine film grain over the background. Pixel-sized at export resolution.
+    static func drawGrain(in cg: CGContext, size: CGSize) {
+        guard let tile = grainTile else { return }
+        cg.saveGState()
+        cg.setBlendMode(.overlay)
+        cg.setAlpha(0.07)
+        cg.interpolationQuality = .none
+        let side = CGFloat(tile.width)
+        var y: CGFloat = 0
+        while y < size.height {
+            var x: CGFloat = 0
+            while x < size.width {
+                cg.draw(tile, in: CGRect(x: x, y: y, width: side, height: side))
+                x += side
+            }
+            y += side
+        }
+        cg.restoreGState()
     }
 
     /// Headline text. Words wrapped in *asterisks* take the accent color.
