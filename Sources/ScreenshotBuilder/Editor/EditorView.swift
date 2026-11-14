@@ -196,7 +196,6 @@ struct EditorView: View {
                 if tab == .caption, let index = selectedIndex {
                     CaptionInspector(shot: $document.shots[index], position: index + 1, style: document.style,
                                      captionBand: ShotRenderer.captionBand(shots: document.shots, style: document.style),
-                                     others: otherShots(excluding: index),
                                      companion: ShotRenderer.companion(for: document.shots[index], in: document.shots),
                                      replaceImage: { replacing = selection; importing = true })
                 }

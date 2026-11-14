@@ -485,8 +485,13 @@ struct BuilderTests {
                         }
                         if let callout = c.callout { #expect(canvas.contains(callout.rect)) }
                         if arrangement == .heroLeft || arrangement == .heroRight {
-                            // Hero stays on the canvas side to side, so left-aligned app labels stay whole.
-                            #expect(front.frame.minX >= -0.5 && front.frame.maxX <= canvas.maxX + 0.5, "\(preset) \(landscape) \(layout) hero")
+                            // Hero stays on the canvas side to side, lean included, so left-aligned app labels stay whole.
+                            #expect(front.bounds.minX >= -0.5 && front.bounds.maxX <= canvas.maxX + 0.5, "\(preset) \(landscape) \(layout) hero")
+                        }
+                        if let callout = c.callout {
+                            // The card never covers more than a sliver of its source ring.
+                            let covered = callout.rect.intersection(callout.highlight)
+                            #expect(covered.isNull || covered.height <= callout.highlight.height * 0.15, "\(preset) \(landscape) \(layout) zoom")
                         }
                         if arrangement == .tiltLeft || arrangement == .tiltRight {
                             #expect(front.bounds.width > canvas.width || (front.bounds.minX >= -0.5 && front.bounds.maxX <= canvas.maxX + 0.5))

@@ -114,7 +114,7 @@ enum ShotRenderer {
         let lines = min(2, shots.map { naturalLines(headlineText($0.headline, accents: $0.accents, style: style, size: metrics.headSize),
                                                      width: metrics.textWidth) }.max() ?? 1)
         let needed = shots.map { captionHeight(shot: $0, style: style, metrics: metrics, lines: lines).total }.max() ?? 0
-        let badgeRow = shots.contains { !$0.badge.trimmingCharacters(in: .whitespaces).isEmpty }
+        let badgeRow = shots.contains { !$0.badge.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         let extra = badgeRow ? badgeRowHeight(metrics) : 0
         return CaptionBand(height: min(max(needed, 1), metrics.maxBand) + extra, lines: max(1, lines), badgeRow: badgeRow)
     }
@@ -162,7 +162,7 @@ enum ShotRenderer {
         let subtitle = subtitleText(shot.subtitle, style: style, size: metrics.subSize)
         let caption = captionHeight(shot: shot, style: style, metrics: metrics, lines: captionBand?.lines)
         let needed = caption.total
-        let badgeText = shot.badge.trimmingCharacters(in: .whitespaces)
+        let badgeText = shot.badge.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
         let badgeRow = captionBand?.badgeRow ?? !badgeText.isEmpty
         let badgeExtra = hasCaption && badgeRow ? Self.badgeRowHeight(metrics) : 0
         let captionHeight = hasCaption ? (captionBand?.height ?? metrics.maxBand + badgeExtra) : 0
@@ -244,13 +244,17 @@ enum ShotRenderer {
             // A large device pushed toward one side that runs off the edge away from the caption, not off the side,
             // so left-aligned app labels stay whole. Start from the plain fit, not a bleed placement.
             let plain = Self.fit(objectAspect, in: available)
-            var r = scaled(plain, min(1.28, size.width * 0.86 / plain.width))
+            // Width cap leaves room for the lean and a small margin on portrait canvases.
+            var r = scaled(plain, min(1.28, size.width * 0.8 / plain.width))
             if style.layout.hasCaption && !style.layout.captionOnTop {
                 r.origin.y = available.maxY - r.height
             } else {
                 r.origin.y = style.layout.hasCaption ? available.minY + available.height * 0.02 : size.height * 0.12
             }
-            r.origin.x = arrangement == .heroRight ? size.width - r.width - margin * 0.5 : margin * 0.5
+            // Allow for the 4° lean, so no rotated corner leaves the canvas.
+            let lean = 4 * degrees
+            let extra = (r.height * sin(lean) + r.width * cos(lean) - r.width) / 2
+            r.origin.x = arrangement == .heroRight ? size.width - r.width - margin * 0.5 - extra : margin * 0.5 + extra
             // Lean the device's top toward the canvas center.
             layers = [layer(in: r, capture: sourceSize, rotation: (arrangement == .heroRight ? -4 : 4) * degrees)]
         case .duo:
@@ -271,15 +275,17 @@ enum ShotRenderer {
             // Snap the band to quiet rows so the card never slices a line of text.
             let rawTop = min(max(shot.calloutCenter - 0.08, 0.04), 0.8)
             let band = shot.snappedBand(top: rawTop, bottom: rawTop + 0.16)
-            let crop = CGRect(x: (1 - cropWidth) / 2, y: band.top, width: cropWidth, height: band.bottom - band.top)
+            // Narrow bands anchor to the leading edge, where app rows start, so labels stay whole.
+            let crop = CGRect(x: cropWidth < 1 ? 0.02 : 0, y: band.top, width: cropWidth < 1 ? cropWidth : 1, height: band.bottom - band.top)
             let screen = device.imageRect
             let highlight = CGRect(x: screen.minX + crop.minX * screen.width, y: screen.minY + crop.minY * screen.height,
                                    width: crop.width * screen.width, height: crop.height * screen.height)
             let cardWidth = min(size.width * 0.74, screen.width * crop.width * 1.4)
             let cardHeight = cardWidth * (crop.height * sourceSize.height) / (crop.width * sourceSize.width)
-            // The card sits beside its source, not on it: below a source in the upper half, above one in the lower half.
+            // The card sits beside its source, not on it, on whichever side has more room.
             let gap = cardHeight * 0.18
-            var cardY = shot.calloutCenter < 0.5 ? highlight.maxY + gap : highlight.minY - gap - cardHeight
+            let roomBelow = available.maxY - highlight.maxY, roomAbove = highlight.minY - available.minY
+            var cardY = roomBelow >= roomAbove ? highlight.maxY + gap : highlight.minY - gap - cardHeight
             cardY = min(max(cardY, available.minY), available.maxY - cardHeight)
             let cardX = min(screen.maxX - cardWidth * 0.4, size.width - margin * 1.1 - cardWidth)
             callout = Callout(rect: CGRect(x: cardX, y: cardY, width: cardWidth, height: cardHeight), source: crop,
@@ -296,6 +302,7 @@ enum ShotRenderer {
                     return moved
                 }
                 callout?.rect.origin.y += shift
+                callout?.highlight.origin.y += shift
             }
         }
         // Keep tilted and Duo devices on the canvas horizontally (Hero places itself).
@@ -521,8 +528,21 @@ enum ShotRenderer {
             cg.addPath(CGPath(roundedRect: ring, cornerWidth: border * 2, cornerHeight: border * 2, transform: nil))
             cg.strokePath()
             let below = callout.rect.minY > ring.maxY
-            let from = CGPoint(x: min(ring.maxX - border * 3, callout.rect.minX + callout.rect.width * 0.25), y: below ? ring.maxY : ring.minY)
-            let to = CGPoint(x: from.x, y: below ? callout.rect.minY - border : callout.rect.maxY + border)
+            let overlapMin = max(ring.minX + border * 3, callout.rect.minX + border * 3)
+            let overlapMax = min(ring.maxX - border * 3, callout.rect.maxX - border * 3)
+            let from: CGPoint, to: CGPoint
+            if overlapMin <= overlapMax {
+                // Vertical connector inside the shared horizontal span of ring and card.
+                let x = min(max(callout.rect.minX + callout.rect.width * 0.25, overlapMin), overlapMax)
+                from = CGPoint(x: x, y: below ? ring.maxY : ring.minY)
+                to = CGPoint(x: x, y: below ? callout.rect.minY - border : callout.rect.maxY + border)
+            } else {
+                // No shared span: run a diagonal from the ring's nearest corner to the card's nearest corner.
+                let ringX = callout.rect.minX > ring.maxX ? ring.maxX : ring.minX
+                let cardX = callout.rect.minX > ring.maxX ? callout.rect.minX : callout.rect.maxX
+                from = CGPoint(x: ringX, y: below ? ring.maxY : ring.minY)
+                to = CGPoint(x: cardX, y: below ? callout.rect.minY : callout.rect.maxY)
+            }
             cg.setLineWidth(border * 0.7)
             cg.setLineCap(.round)
             cg.move(to: from); cg.addLine(to: to); cg.strokePath()

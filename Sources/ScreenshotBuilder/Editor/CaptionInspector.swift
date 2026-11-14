@@ -5,8 +5,6 @@ struct CaptionInspector: View {
     let position: Int
     let style: SetStyle
     var captionBand: ShotRenderer.CaptionBand?
-    /// Other shots in the set, for the Duo back-screen menu.
-    var others: [(id: UUID, label: String)] = []
     var companion: Shot?
     let replaceImage: () -> Void
 
