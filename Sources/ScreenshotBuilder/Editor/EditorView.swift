@@ -12,50 +12,19 @@ struct EditorView: View {
     @State private var exporting = false
     @State private var thumbnails: [UUID: NSImage] = [:]
     @State private var mismatched: Set<UUID> = []
-    // The filmstrip is the main navigator; the list sidebar stays one click away for reordering by drag.
-    @State private var columns: NavigationSplitViewVisibility = .detailOnly
     @State private var tab: InspectorTab = .style
+    @State private var mode: CanvasMode = .canvas
+    /// `nil` fits the pane. See `CanvasZoom`.
+    @State private var zoom: CGFloat?
+    @State private var fitZoom: CGFloat = 0.5
 
     private var selectedIndex: Int? { document.shots.firstIndex(where: { $0.id == selection }) }
     private var canvasAspect: CGFloat { document.style.size.width / document.style.size.height }
 
     var body: some View {
-        NavigationSplitView(columnVisibility: $columns) {
-            List(selection: $selection) {
-                ForEach(Array(document.shots.enumerated()), id: \.element.id) { index, shot in
-                    ShotRow(name: shot.name, headline: shot.headline, thumbnail: thumbnails[shot.id],
-                            canvasAspect: canvasAspect, position: index + 1)
-                        .tag(shot.id)
-                        .contextMenu {
-                            Button("Move Earlier") { move(shot.id, by: -1) }
-                                .disabled(index == 0)
-                            Button("Move Later") { move(shot.id, by: 1) }
-                                .disabled(index == document.shots.count - 1)
-                            Divider()
-                            Button("Replace Image…") { replacing = shot.id; importing = true }
-                            Button("Remove Screenshot…", role: .destructive) { removal = shot.id }
-                        }
-                }
-                .onMove { offsets, target in document.shots.move(fromOffsets: offsets, toOffset: target) }
-            }
-            .navigationTitle("Screenshots")
-            .safeAreaInset(edge: .bottom) {
-                HStack {
-                    Text("\(document.shots.count) of 10 screenshots").font(.caption).foregroundStyle(.secondary)
-                        .help("App Store Connect accepts up to 10 screenshots per device size.")
-                    Spacer()
-                    Button { replacing = nil; importing = true } label: { Label("Import", systemImage: "plus") }
-                        .disabled(document.shots.count >= 10)
-                }
-                .padding(12)
-                .background(.bar)
-            }
-            .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 320)
-        } detail: {
-            HSplitView {
-                previewColumn
-                inspectorColumn
-            }
+        HSplitView {
+            previewColumn
+            inspectorColumn
         }
         .toolbar {
             ToolbarItemGroup {
@@ -82,6 +51,41 @@ struct EditorView: View {
                     .help("Portrait or landscape output")
                 }
             }
+            ToolbarItemGroup {
+                ControlGroup {
+                    Button { zoom = CanvasZoom.zoomOut(from: zoom ?? fitZoom).nilIfFits(fitZoom) } label: {
+                        Label("Zoom Out", systemImage: "minus.magnifyingglass")
+                    }
+                    .keyboardShortcut("-", modifiers: .command)
+                    .help("Zoom out (⌘−)")
+                    Button("Fit") { zoom = nil }
+                        .keyboardShortcut("0", modifiers: .command)
+                        .help("Fit the canvas to the window (⌘0)")
+                    Button("100%") { zoom = 1 }
+                        .keyboardShortcut("1", modifiers: .command)
+                        .help("Show export pixels at actual size (⌘1)")
+                    Button { zoom = CanvasZoom.zoomIn(from: zoom ?? fitZoom) } label: {
+                        Label("Zoom In", systemImage: "plus.magnifyingglass")
+                    }
+                    .keyboardShortcut("=", modifiers: .command)
+                    .help("Zoom in (⌘=)")
+                }
+                .disabled(mode != .canvas || document.shots.isEmpty)
+                Picker("View", selection: $mode) {
+                    Label("Canvas", systemImage: "rectangle.portrait").tag(CanvasMode.canvas)
+                    Label("Set", systemImage: "rectangle.split.3x1").tag(CanvasMode.set)
+                }
+                .pickerStyle(.segmented)
+                .labelStyle(.titleAndIcon)
+                .help("Edit one shot, or see the whole set (⌘2)")
+                .disabled(document.shots.isEmpty)
+                .background {
+                    Button("Toggle Set View") { mode = mode == .canvas ? .set : .canvas }
+                        .keyboardShortcut("2", modifiers: .command)
+                        .disabled(document.shots.isEmpty)
+                        .opacity(0).frame(width: 0, height: 0).accessibilityHidden(true)
+                }
+            }
             ToolbarItem(placement: .primaryAction) {
                 Button { export() } label: {
                     Label(exporting ? "Exporting…" : "Export", systemImage: "square.and.arrow.up")
@@ -92,7 +96,7 @@ struct EditorView: View {
                 .help("Export every screenshot as an App Store-ready PNG")
             }
         }
-        .task(id: ThumbnailKey(shots: document.shots, style: document.style)) { await renderThumbnails() }
+        .task(id: ThumbnailKey(shots: document.shots, style: document.style, large: mode == .set)) { await renderThumbnails() }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.png, .jpeg], allowsMultipleSelection: replacing == nil) { result in
             switch result {
             case .success(let urls): importURLs(urls)
@@ -132,7 +136,10 @@ struct EditorView: View {
             // Start with nothing focused, so no field shows a focus ring on open.
             DispatchQueue.main.async { NSApp.keyWindow?.makeFirstResponder(nil) }
         }
-        .onChange(of: document.shots.map(\.id)) { ensureSelection() }
+        .onChange(of: document.shots.map(\.id)) {
+            ensureSelection()
+            if document.shots.isEmpty { mode = .canvas }
+        }
         .frame(minWidth: 900, minHeight: 600)
     }
 
@@ -142,6 +149,8 @@ struct EditorView: View {
         try? await Task.sleep(for: .milliseconds(200))
         if Task.isCancelled { return }
         let shots = document.shots, style = document.style
+        // Set view shows tiles several hundred points tall, so it needs sharper thumbnails than the filmstrip.
+        let dimension: CGFloat = mode == .set ? 1100 : 420
         let band = ShotRenderer.captionBand(shots: shots, style: style)
         var rendered: [UUID: NSImage] = [:]
         var misfits: Set<UUID> = []
@@ -149,7 +158,7 @@ struct EditorView: View {
             // Yield between shots so typing stays responsive; a newer edit cancels this pass.
             await Task.yield()
             if Task.isCancelled { return }
-            guard let bitmap = try? ShotRenderer.render(shot: shot, style: style, maxDimension: 420,
+            guard let bitmap = try? ShotRenderer.render(shot: shot, style: style, maxDimension: dimension,
                                                         position: .init(index: index, count: shots.count), captionBand: band,
                                                         companion: ShotRenderer.companion(for: shot, in: shots)) else { continue }
             let image = NSImage(size: bitmap.size)
@@ -166,12 +175,23 @@ struct EditorView: View {
 
     private var previewColumn: some View {
         VStack(spacing: 0) {
-            PreviewPane(shot: selectedIndex.map { document.shots[$0] }, style: document.style,
-                        position: .init(index: selectedIndex ?? 0, count: document.shots.count),
-                        captionBand: ShotRenderer.captionBand(shots: document.shots, style: document.style),
-                        companion: selectedIndex.flatMap { ShotRenderer.companion(for: document.shots[$0], in: document.shots) },
-                        importImages: { replacing = nil; importing = true })
-            if !document.shots.isEmpty {
+            if mode == .set && !document.shots.isEmpty {
+                SetView(shots: document.shots, thumbnails: thumbnails, mismatched: mismatched, canvasAspect: canvasAspect,
+                        selection: selection,
+                        open: { selection = $0; mode = .canvas },
+                        reorder: { id, index in
+                            guard let from = document.shots.firstIndex(where: { $0.id == id }) else { return }
+                            withAnimation(.snappy) { document.shots.move(fromOffsets: [from], toOffset: index > from ? index + 1 : index) }
+                        })
+            } else {
+                PreviewPane(shot: selectedIndex.map { document.shots[$0] }, style: document.style,
+                            position: .init(index: selectedIndex ?? 0, count: document.shots.count),
+                            captionBand: ShotRenderer.captionBand(shots: document.shots, style: document.style),
+                            companion: selectedIndex.flatMap { ShotRenderer.companion(for: document.shots[$0], in: document.shots) },
+                            zoom: $zoom, fitZoom: $fitZoom,
+                            importImages: { replacing = nil; importing = true })
+            }
+            if mode == .canvas && !document.shots.isEmpty {
                 Divider()
                 Filmstrip(shots: document.shots, thumbnails: thumbnails, mismatched: mismatched, canvasAspect: canvasAspect,
                           selection: $selection, canImport: document.shots.count < 10,
@@ -278,6 +298,14 @@ struct EditorView: View {
 private struct ThumbnailKey: Equatable {
     let shots: [Shot]
     let style: SetStyle
+    let large: Bool
+}
+
+enum CanvasMode { case canvas, set }
+
+private extension CGFloat {
+    /// Zooming out to or below the fit returns to Fit, so the canvas never shrinks below the pane.
+    func nilIfFits(_ fit: CGFloat) -> CGFloat? { self <= fit + 0.005 ? nil : self }
 }
 
 extension OutputPreset {
