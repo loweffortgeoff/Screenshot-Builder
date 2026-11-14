@@ -735,7 +735,7 @@ enum ShotRenderer {
             let safe = CGRect(origin: .zero, size: size).insetBy(dx: margin, dy: margin)
             let pad = unit * 0.012
             // Zoom is Stacked or Big number only (the others fall back to Stacked), so the card clears the stacked caption.
-            let obstacles = (stacksCaption ? [statRect, headlineRect, subtitleRect, badgeRect] : [])
+            let obstacles = (stacksCaption ? [statRect, headlineRect, subtitleRect, badgeRect, eyebrowRect, ruleRect] : [])
                 .filter { $0.width > 0 && $0.height > 0 }.map { $0.insetBy(dx: -pad, dy: -pad) }
             let floorZoom: CGFloat = spec.family == .laptop ? 1.5 : 1.6
             let custom = shot.calloutRegion == .custom ? shot.calloutRect : nil

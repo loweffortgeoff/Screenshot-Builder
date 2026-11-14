@@ -468,6 +468,33 @@ struct ChapterFourTests {
         }
     }
 
+    @Test func zoomCardNeverCoversTheEyebrowRow() throws {
+        let samples = URL(fileURLWithPath: NSHomeDirectory() + "/Documents/Dev Workstation/Visual Verification/screenshot builder/ch3-check/assets/samples")
+        for layout in [CaptionLayout.above, .below, .bleedBottom] {
+            var style = SetStyle()
+            style.layout = layout
+            style.decor.eyebrow = .section
+            style.decor.rule = true
+            var shots: [Shot] = []
+            for i in 1...5 {
+                let url = samples.appendingPathComponent(String(format: "%02d.png", i))
+                var shot = FileManager.default.fileExists(atPath: url.path) ? try Shot.importing(url) : try fixture()
+                shot.headline = "See where your money goes"; shot.subtitle = "Spending over time, by store"
+                shot.eyebrow = "Spending insights"; shot.arrangement = .callout
+                shots.append(shot)
+            }
+            let band = ShotRenderer.captionBand(shots: shots, style: style)
+            for (index, shot) in shots.enumerated() {
+                let size = shot.cgImage.map { CGSize(width: $0.width, height: $0.height) } ?? phoneSource
+                let c = ShotRenderer.compose(shot: shot, style: style, sourceSize: size, captionBand: band)
+                let card = try #require(c.callout).rect
+                for rect in [c.eyebrowRect, c.ruleRect] where rect.width > 0 {
+                    #expect(!card.intersects(rect), "\(layout) shot \(index + 1): card \(card) over \(rect)")
+                }
+            }
+        }
+    }
+
     @Test func zoomCardTakesAThemeTintAndASofterShadow() throws {
         for theme in Theme.all {
             let tint = ShotRenderer.cardTint(theme.accent)
