@@ -43,12 +43,18 @@ struct SampleRenderTests {
                     let parts = line.split(separator: "|", maxSplits: 2).map(String.init)
                     return (parts.first ?? "", parts.count > 1 ? parts[1] : "")
                 } } ?? Self.captions
-            // Optional badges: SB_BADGES="1:New,3:Insights" (1-based shot numbers).
-            let badges = Dictionary(uniqueKeysWithValues: (env["SB_BADGES"] ?? "").split(separator: ",").compactMap { item -> (Int, String)? in
-                let parts = item.split(separator: ":", maxSplits: 1)
-                guard parts.count == 2, let n = Int(parts[0]) else { return nil }
-                return (n - 1, String(parts[1]))
-            })
+            // Optional per-shot text: SB_BADGES="1:New,3:Insights", SB_STAT="1:2×,3:10k" (1-based shot numbers).
+            // SB_STAT without numbers ("2×") sets the same stat on every shot.
+            func perShot(_ name: String) -> [Int: String] {
+                Dictionary((env[name] ?? "").split(separator: ",").compactMap { item -> (Int, String)? in
+                    let parts = item.split(separator: ":", maxSplits: 1)
+                    guard parts.count == 2, let n = Int(parts[0]) else { return nil }
+                    return (n - 1, String(parts[1]))
+                }, uniquingKeysWith: { $1 })
+            }
+            let badges = perShot("SB_BADGES")
+            let stats = perShot("SB_STAT")
+            let sharedStat = (env["SB_STAT"] ?? "").contains(":") ? "" : (env["SB_STAT"] ?? "")
             for (index, caption) in captions.enumerated() {
                 let url = samples.appendingPathComponent(String(format: "%02d.png", index + 1))
                 guard FileManager.default.fileExists(atPath: url.path) else { continue }
@@ -59,6 +65,7 @@ struct SampleRenderTests {
                 shot.accents = parts.enumerated().filter { $0.offset % 2 == 1 }.flatMap { $0.element.split(separator: " ").map(String.init) }
                 shot.subtitle = caption.1
                 shot.badge = badges[index] ?? ""
+                shot.stat = stats[index] ?? sharedStat
                 document.shots.append(shot)
             }
         }
@@ -77,12 +84,17 @@ struct SampleRenderTests {
         if let raw = env["SB_LAYOUT"], let value = CaptionLayout(rawValue: raw) { document.style.layout = value }
         if let raw = env["SB_ALIGN"], let value = CaptionAlignment(rawValue: raw) { document.style.alignment = value }
         if let raw = env["SB_FONT"], let value = CaptionFont(rawValue: raw) { document.style.font = value }
-        // SB_ARRANGE: "vary" applies the curated sequence, or an Arrangement raw value applies to every shot.
+        // SB_COMPOSITION: a CaptionComposition raw value or case name (bigNumber, sideBySide), applied to the set style.
+        if let raw = env["SB_COMPOSITION"],
+           let value = CaptionComposition.allCases.first(where: { raw == $0.rawValue || raw.lowercased() == "\($0)".lowercased() }) {
+            document.style.composition = value
+        }
+        // SB_ARRANGE: "vary" runs Vary layouts (compositions and arrangements), or an Arrangement raw value applies to every shot.
         if let raw = env["SB_ARRANGE"] {
-            for index in document.shots.indices {
-                document.shots[index].arrangement = raw == "vary"
-                    ? Arrangement.variedSequence[index % Arrangement.variedSequence.count]
-                    : Arrangement(rawValue: raw) ?? .standard
+            if raw == "vary" {
+                document.varyLayouts()
+            } else {
+                for index in document.shots.indices { document.shots[index].arrangement = Arrangement(rawValue: raw) ?? .standard }
             }
         }
         let band = ShotRenderer.captionBand(shots: document.shots, style: document.style)

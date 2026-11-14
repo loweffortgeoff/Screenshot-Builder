@@ -796,17 +796,35 @@ struct BuilderTests {
         shots[0].removeValue(forKey: "arrangement"); shots[0].removeValue(forKey: "calloutRegion")
         json["shots"] = shots
         let loaded = try ShotDocument.decode(JSONSerialization.data(withJSONObject: json))
-        #expect(loaded.version == 3)
+        #expect(loaded.version == ShotDocument.currentVersion)
         #expect(loaded.shots[0].arrangement == .standard && loaded.shots[0].calloutRegion == .auto)
     }
 
-    @Test func varyLayoutsAssignsTheSequenceAndUniformResets() throws {
+    @Test func varyLayoutsPairsCompositionsAndArrangements() throws {
         var document = ShotDocument()
         document.shots = try (0..<5).map { _ in try fixture() }
+        document.shots[2].stat = "2×"
         document.varyLayouts()
-        #expect(document.shots.map(\.arrangement) == Array(Arrangement.variedSequence.prefix(5)))
+        // Five shots: no Text only. The Big number slot has a stat on shot 3 only, so the others would fall back.
+        let pairs = document.shots.map { ($0.composition, $0.arrangement) }
+        #expect(pairs.map(\.0) == [.sideBySide, .stacked, .bigNumber, .stacked, .overlay])
+        #expect(pairs.map(\.1) == [.standard, .duo, .standard, .callout, .standard])
+        #expect(!document.shots.contains { $0.composition == .textOnly })
+        // Six or more shots: Text only is the fifth look.
+        document.shots = try (0..<6).map { _ in try fixture() }
+        document.varyLayouts()
+        #expect(document.shots.map(\.composition) == [.sideBySide, .stacked, .stacked, .stacked, .textOnly, .overlay])
+        // Big number without a stat takes Stacked and Standard; the app never invents one.
+        #expect(document.shots[2].composition == .stacked && document.shots[2].arrangement == .standard)
+        // Longer sets keep cycling, and every Big number slot has a stat or falls back.
+        document.shots = try (0..<10).map { _ in try fixture() }
+        for index in document.shots.indices { document.shots[index].stat = "\(index)k" }
+        document.varyLayouts()
+        #expect(document.shots.filter { $0.composition == .bigNumber }.count == 2)
+        #expect(document.shots.allSatisfy { $0.composition != nil })
+        // Make uniform follows the set again.
         document.makeUniform()
-        #expect(document.shots.allSatisfy { $0.arrangement == .standard })
+        #expect(document.shots.allSatisfy { $0.arrangement == .standard && $0.composition == nil })
         document.shots = [try fixture(), try fixture()]
         document.shots.removeLast()
         document.varyLayouts()
@@ -1107,6 +1125,356 @@ struct BuilderTests {
                     #expect(c.callout?.rect.width ?? 0 > 0)
                 }
             }
+        }
+    }
+
+    // MARK: Caption compositions
+
+    private let phoneSource = CGSize(width: 1320, height: 2868)
+
+    private func fontSize(_ text: NSAttributedString?) -> CGFloat {
+        ((text?.attribute(.font, at: 0, effectiveRange: nil)) as? NSFont)?.pointSize ?? 0
+    }
+
+    /// The composition a shot must resolve to, written out from the rules rather than read from the code under test.
+    private func expectedComposition(_ wanted: CaptionComposition, layout: CaptionLayout, arrangement: Arrangement,
+                                     stat: String) -> CaptionComposition {
+        if !layout.hasCaption { return .stacked }
+        switch wanted {
+        case .sideBySide: return arrangement == .duo || arrangement == .callout ? .stacked : wanted
+        case .overlay: return arrangement == .callout ? .stacked : wanted
+        case .bigNumber: return stat.trimmingCharacters(in: .whitespaces).isEmpty ? .stacked : wanted
+        default: return wanted
+        }
+    }
+
+    @Test func everyCompositionStaysInBoundsAndClearOfCaptions() throws {
+        var shot = try fixture()
+        shot.stat = "2×"
+        for preset in OutputPreset.allCases {
+            for landscape in [false, true] where !(landscape && preset == .mac) {
+                for layout in CaptionLayout.allCases {
+                    for arrangement in Arrangement.allCases {
+                        for composition in CaptionComposition.allCases {
+                            var style = SetStyle()
+                            style.preset = preset; style.landscape = landscape; style.layout = layout; style.composition = composition
+                            shot.arrangement = arrangement
+                            let label = "\(preset) \(landscape) \(layout) \(arrangement) \(composition)"
+                            let c = ShotRenderer.compose(shot: shot, style: style, sourceSize: phoneSource)
+                            let canvas = CGRect(origin: .zero, size: style.size)
+                            let expected = expectedComposition(composition, layout: layout, arrangement: arrangement, stat: shot.stat)
+                            #expect(c.composition == expected, "\(label)")
+                            let texts = [c.headlineRect, c.subtitleRect, c.statRect].filter { $0.width > 0 && $0.height > 0 }
+                            if layout.hasCaption {
+                                for text in texts { #expect(canvas.insetBy(dx: -0.5, dy: -0.5).contains(text), "\(label) text \(text)") }
+                                if let panel = c.panel { #expect(canvas.contains(panel), "\(label) panel") }
+                            }
+                            if c.composition == .textOnly {
+                                #expect(c.layers.isEmpty && c.device == nil, "\(label)")
+                                continue
+                            }
+                            let front = try #require(c.layers.last, "\(label)")
+                            let visible = front.bounds.intersection(canvas)
+                            #expect(visible.width * visible.height >= front.bounds.width * front.bounds.height * 0.5, "\(label)")
+                            if c.composition == .overlay || !layout.hasCaption { continue }
+                            for layer in c.layers {
+                                for text in texts {
+                                    let overlap = layer.bounds.intersection(text)
+                                    #expect(overlap.isNull || overlap.width < 0.5 || overlap.height < 0.5, "\(label) device over \(text)")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @Test func compositionFallbacksResolveBySpec() throws {
+        var shot = try fixture()
+        var style = SetStyle()
+        style.composition = .sideBySide
+        for arrangement in [Arrangement.duo, .callout] {
+            shot.arrangement = arrangement
+            #expect(style.effectiveComposition(for: shot) == .stacked)
+        }
+        for arrangement in [Arrangement.standard, .tiltLeft, .tiltRight, .heroLeft, .heroRight] {
+            shot.arrangement = arrangement
+            #expect(style.effectiveComposition(for: shot) == .sideBySide)
+        }
+        style.composition = .bigNumber
+        shot.arrangement = .standard
+        #expect(style.effectiveComposition(for: shot) == .stacked)
+        shot.stat = "   "
+        #expect(style.effectiveComposition(for: shot) == .stacked)
+        shot.stat = "10k"
+        #expect(style.effectiveComposition(for: shot) == .bigNumber)
+        // A shot's own choice wins over the set; nil follows it.
+        shot.composition = .textOnly
+        #expect(style.effectiveComposition(for: shot) == .textOnly)
+        // Screenshot only has no caption, so no composition applies.
+        style.layout = .imageOnly
+        #expect(style.effectiveComposition(for: shot) == .stacked)
+        let c = ShotRenderer.compose(shot: shot, style: style, sourceSize: phoneSource)
+        #expect(c.layers.count == 1 && c.stat == nil && c.panel == nil)
+        // Duo without a companion draws Standard under Overlay too.
+        style.layout = .above
+        shot.composition = .overlay
+        shot.arrangement = .duo
+        #expect(ShotRenderer.compose(shot: shot, style: style, sourceSize: phoneSource).layers.count == 1)
+    }
+
+    @Test func sideBySideMeasureAndAlignment() throws {
+        var shot = try fixture()
+        shot.headline = "Everything you save, in one place"
+        for preset in [OutputPreset.phone69, .phone55, .pad13, .pad11, .mac] {
+            for landscape in [false, true] where !(landscape && preset == .mac) {
+                for arrangement in [Arrangement.standard, .tiltLeft, .tiltRight, .heroLeft, .heroRight] {
+                    for alignment in CaptionAlignment.allCases {
+                        var style = SetStyle()
+                        style.preset = preset; style.landscape = landscape; style.composition = .sideBySide
+                        style.alignment = alignment
+                        shot.arrangement = arrangement
+                        let c = ShotRenderer.compose(shot: shot, style: style, sourceSize: phoneSource)
+                        let label = "\(preset) \(landscape) \(arrangement) \(alignment)"
+                        let width = style.size.width
+                        #expect(c.composition == .sideBySide, "\(label)")
+                        #expect(c.headlineRect.width <= width * 0.42 + 0.5 && c.subtitleRect.width <= width * 0.42 + 0.5, "\(label) measure")
+                        #expect(c.textColumn.width <= width * 0.42 + 0.5, "\(label) column")
+                        #expect(c.headlineRect.minX == c.textColumn.minX && c.subtitleRect.minX == c.textColumn.minX, "\(label) left edge")
+                        for text in [c.headline, c.subtitle] {
+                            let paragraph = text.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
+                            #expect(paragraph?.alignment == .left, "\(label) left-aligned whatever the set says")
+                        }
+                        // Caption and device sit on opposite halves. Hero left pushes the device left, so the caption takes the right.
+                        let device = try #require(c.layers.last, "\(label)").bounds
+                        let captionOnRight = arrangement == .heroLeft
+                        #expect((c.headlineRect.midX > width / 2) == captionOnRight, "\(label) caption half")
+                        #expect((device.midX > width / 2) != captionOnRight, "\(label) device half")
+                        #expect(c.headlineRect.midY < style.size.height * 0.62 && c.headlineRect.midY > style.size.height * 0.3, "\(label) centered")
+                    }
+                }
+            }
+        }
+    }
+
+    @Test func sideBySideDeviceBoxOnPortraitPhone() throws {
+        var style = SetStyle()
+        style.composition = .sideBySide
+        let c = ShotRenderer.compose(shot: try fixture(), style: style, sourceSize: phoneSource)
+        let device = try #require(c.layers.last).bounds
+        // The box is 0.62 of the canvas height; a half canvas cannot hold that much width, so the device is smaller than the box.
+        #expect(device.height <= style.size.height * 0.62 + 0.5)
+        #expect(device.height >= style.size.height * 0.45)
+        // It may run off the outer edge by a few percent, never off the caption side.
+        #expect(device.maxX <= style.size.width + device.width * 0.09)
+        #expect(device.minX > c.textColumn.maxX)
+    }
+
+    @Test func sideBySideShrinksTheHeadlineTogetherAndKeepsWordsWhole() throws {
+        var long = try fixture()
+        long.headline = "Beautifully organized notifications"
+        let short = try fixture()
+        var style = SetStyle()
+        style.preset = .pad11
+        style.composition = .sideBySide
+        let band = ShotRenderer.captionBand(shots: [long, short], style: style)
+        let group = try #require(band.group(for: .sideBySide))
+        let a = ShotRenderer.compose(shot: long, style: style, sourceSize: phoneSource, captionBand: band)
+        let b = ShotRenderer.compose(shot: short, style: style, sourceSize: phoneSource, captionBand: band)
+        #expect(group.headScale <= 1)
+        #expect(fontSize(a.headline) == fontSize(b.headline), "one headline size for the group")
+        #expect(a.headlineRect.minY == b.headlineRect.minY, "top-aligned inside the shared band")
+        #expect(a.warnings.isEmpty, "\(a.warnings)")
+    }
+
+    @Test func bigNumberStatIsLargerAccentAndFallsBack() throws {
+        var shot = try fixture()
+        shot.stat = "2×"
+        var style = SetStyle()
+        style.composition = .bigNumber
+        let c = ShotRenderer.compose(shot: shot, style: style, sourceSize: phoneSource)
+        let stat = try #require(c.stat)
+        #expect(c.composition == .bigNumber)
+        #expect(abs(fontSize(stat) - fontSize(c.headline) * 2.2) < 0.01, "2.2x the headline")
+        let color = try #require(stat.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor).usingColorSpace(.sRGB)
+        #expect(color == style.accent.nsColor.usingColorSpace(.sRGB))
+        let font = try #require(stat.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)
+        let heaviest = try #require(style.font.headlineWeights.last)
+        func weight(_ f: NSFont) -> CGFloat? {
+            ((f.fontDescriptor.object(forKey: .traits) as? [NSFontDescriptor.TraitKey: Any])?[.weight] as? NSNumber).map { CGFloat($0.doubleValue) }
+        }
+        #expect(weight(font) != nil && weight(font) == weight(style.font.font(size: font.pointSize, weight: heaviest)), "heaviest real weight")
+        #expect(font.fontName.contains("Black"), "\(font.fontName)")
+        let features = font.fontDescriptor.object(forKey: .featureSettings) as? [[NSFontDescriptor.FeatureKey: Int]]
+        #expect(features?.contains { $0[.typeIdentifier] == Int(kNumberSpacingType) && $0[.selectorIdentifier] == Int(kMonospacedNumbersSelector) } == true,
+                "tabular figures")
+        #expect((stat.attribute(.kern, at: 0, effectiveRange: nil) as? CGFloat ?? 0) < 0, "tight tracking")
+        #expect(c.statRect.maxY <= c.headlineRect.minY + 0.5 && c.headlineRect.maxY <= c.subtitleRect.minY, "stat, headline label, subtitle in order")
+        #expect(c.layers.last.map { $0.bounds.minY >= c.subtitleRect.maxY - 0.5 } == true)
+        // An empty or blank stat draws Stacked.
+        for blank in ["", "  \n"] {
+            shot.stat = blank
+            let stacked = ShotRenderer.compose(shot: shot, style: style, sourceSize: phoneSource)
+            #expect(stacked.composition == .stacked && stacked.stat == nil && stacked.statRect == .zero)
+            #expect(abs(fontSize(stacked.headline) - fontSize(c.headline)) < 0.01)
+        }
+        // A stat that cannot fit one line even at half size blocks export.
+        shot.stat = String(repeating: "8", count: 40)
+        #expect(ShotRenderer.compose(shot: shot, style: style, sourceSize: phoneSource).warnings.contains { $0.contains("stat is too wide") })
+    }
+
+    @Test func textOnlyHasNoDevice() throws {
+        var shot = try fixture()
+        shot.badge = "New"
+        var style = SetStyle()
+        style.composition = .textOnly
+        let c = ShotRenderer.compose(shot: shot, style: style, sourceSize: phoneSource)
+        #expect(c.layers.isEmpty && c.device == nil && c.callout == nil && c.imageRect == .zero)
+        #expect(c.advisories.isEmpty)
+        style.composition = .stacked
+        let stacked = ShotRenderer.compose(shot: shot, style: style, sourceSize: phoneSource)
+        #expect(abs(fontSize(c.headline) - fontSize(stacked.headline) * 1.6) < 0.01, "1.6x headline")
+        // Badge, headline, and subtitle sit as one block, centered on the canvas.
+        let block = c.badgeRect.union(c.headlineRect).union(c.subtitleRect)
+        #expect(c.badge != nil && abs(block.midY - style.size.height / 2) < 1)
+        // Rendering draws text on the plain background with no device.
+        style.composition = .textOnly
+        let bitmap = try ShotRenderer.render(shot: shot, style: style, maxDimension: 400)
+        #expect(bitmap.pixelsWide > 0)
+        // Screenshot only wins: the shot draws as before, with its device and no caption.
+        style.layout = .imageOnly
+        #expect(ShotRenderer.compose(shot: shot, style: style, sourceSize: phoneSource).layers.count == 1)
+    }
+
+    @Test func overlayBandSitsOverTheDeviceAndFrostsIt() throws {
+        var style = SetStyle()
+        style.composition = .overlay
+        let shot = try fixture()
+        let c = ShotRenderer.compose(shot: shot, style: style, sourceSize: phoneSource)
+        let panel = try #require(c.panel)
+        let device = try #require(c.layers.last).bounds
+        #expect(panel.intersects(device) && panel.midY > device.minY + device.height * 0.66, "band over the lower third")
+        #expect(panel.contains(c.headlineRect) && panel.contains(c.subtitleRect))
+        #expect(device.height > style.size.height * 0.75, "the device takes the image area")
+        // The band blurs what is under it: a hard edge of the capture is softened inside the band, not outside it.
+        let sharp = try ShotRenderer.render(shot: shot, style: SetStyle(), maxDimension: 660)
+        let framed = try ShotRenderer.render(shot: shot, style: style, maxDimension: 660)
+        func luma(_ b: NSBitmapImageRep, _ p: CGPoint) -> CGFloat { (b.colorAt(x: Int(p.x), y: Int(p.y))?.usingColorSpace(.sRGB)?.brightnessComponent) ?? 0 }
+        let scale = CGFloat(framed.pixelsWide) / style.size.width
+        let inside = CGPoint(x: device.minX * scale + 60, y: (panel.maxY - 20) * scale)
+        #expect(luma(framed, inside) != luma(sharp, inside), "the band covers the capture")
+    }
+
+    @Test func captionBandsGroupByComposition() throws {
+        func shot(_ headline: String, _ composition: CaptionComposition? = nil, stat: String = "") throws -> Shot {
+            var s = try fixture()
+            s.headline = headline; s.composition = composition; s.stat = stat
+            return s
+        }
+        let shortA = try shot("Short"), longB = try shot("A rather long headline that wraps onto two lines")
+        let sideC = try shot("Side one"), sideD = try shot("Side two has a longer headline to wrap", .sideBySide)
+        var sideE = sideC; sideE.composition = .sideBySide
+        let bigF = try shot("Label", .bigNumber, stat: "2×")
+        let style = SetStyle()
+        let shots = [shortA, longB, sideE, sideD, bigF]
+        let band = ShotRenderer.captionBand(shots: shots, style: style)
+        #expect(Set(band.groups.keys) == [.stacked, .sideBySide, .bigNumber])
+        // The Stacked values are the legacy fields, and other shots do not change them.
+        let alone = ShotRenderer.captionBand(shots: [shortA, longB], style: style)
+        #expect(band.height == alone.height && band.lines == alone.lines && band.group(for: .stacked)?.height == alone.height)
+        #expect(band.group(for: .overlay) == nil)
+        let source = phoneSource
+        func compose(_ s: Shot) -> ShotRenderer.Composition {
+            ShotRenderer.compose(shot: s, style: style, sourceSize: source, captionBand: band)
+        }
+        // Same composition: headlines start on one line.
+        #expect(compose(shortA).headlineRect.minY == compose(longB).headlineRect.minY)
+        #expect(compose(sideE).headlineRect.minY == compose(sideD).headlineRect.minY)
+        #expect(fontSize(compose(sideE).headline) == fontSize(compose(sideD).headline))
+        // Mixed compositions align their top margins and nothing else.
+        #expect(compose(bigF).statRect.minY == compose(shortA).headlineRect.minY, "top margins align")
+        #expect(compose(bigF).headlineRect.minY != compose(shortA).headlineRect.minY)
+        // The bands differ because the compositions differ.
+        #expect(band.group(for: .bigNumber)?.height != band.group(for: .stacked)?.height)
+        // A set with no shots still gets a band.
+        #expect(ShotRenderer.captionBand(shots: [], style: style).height > 0)
+    }
+
+    @Test func v3FileDecodesAsStackedWithNoStat() throws {
+        var document = ShotDocument()
+        document.shots = [try fixture()]
+        var json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(document)) as! [String: Any]
+        json["version"] = 3
+        var style = json["style"] as! [String: Any]
+        style.removeValue(forKey: "composition")
+        json["style"] = style
+        var shots = json["shots"] as! [[String: Any]]
+        shots[0].removeValue(forKey: "composition"); shots[0].removeValue(forKey: "stat")
+        json["shots"] = shots
+        let loaded = try ShotDocument.decode(JSONSerialization.data(withJSONObject: json))
+        #expect(loaded.version == 4)
+        #expect(loaded.style.composition == .stacked && loaded.shots[0].composition == nil && loaded.shots[0].stat == "")
+        #expect(loaded.style.effectiveComposition(for: loaded.shots[0]) == .stacked)
+        let before = ShotRenderer.compose(shot: document.shots[0], style: SetStyle(), sourceSize: phoneSource)
+        let after = ShotRenderer.compose(shot: loaded.shots[0], style: loaded.style, sourceSize: phoneSource)
+        #expect(before.headlineRect == after.headlineRect && before.layers.last?.frame == after.layers.last?.frame)
+    }
+
+    @Test func v4CompositionAndStatRoundTrip() throws {
+        var document = ShotDocument()
+        document.style.composition = .overlay
+        var shot = try fixture()
+        shot.composition = .bigNumber
+        shot.stat = "$0"
+        document.shots = [shot, try fixture()]
+        let loaded = try ShotDocument.decode(JSONEncoder().encode(document))
+        #expect(loaded.version == 4)
+        #expect(loaded.style.composition == .overlay)
+        #expect(loaded.shots[0].composition == .bigNumber && loaded.shots[0].stat == "$0")
+        #expect(loaded.shots[1].composition == nil && loaded.shots[1].stat == "")
+        #expect(loaded.style == document.style && loaded.shots == document.shots)
+    }
+
+    @Test func statAndOverlayBandContrastAreChecked() throws {
+        func blend(_ top: ScreenshotBuilder.RGBColor, over base: ScreenshotBuilder.RGBColor, alpha: Double) -> ScreenshotBuilder.RGBColor {
+            ScreenshotBuilder.RGBColor(top.red * alpha + base.red * (1 - alpha), top.green * alpha + base.green * (1 - alpha),
+                                       top.blue * alpha + base.blue * (1 - alpha))
+        }
+        var failures: [String] = []
+        for theme in Theme.all {
+            for stop in theme.background.colors {
+                // The stat is the accent on the plain background.
+                let stat = ShotRenderer.contrastRatio(theme.accent, stop)
+                // The Overlay headline and subtitle are measured on the band, not the background.
+                let band = ShotRenderer.overlayBandColor(over: stop)
+                let head = ShotRenderer.contrastRatio(theme.foreground, band)
+                let sub = ShotRenderer.contrastRatio(blend(theme.foreground, over: band, alpha: 0.82), band)
+                if stat < 3 || head < 3 || sub < 3 {
+                    failures.append(String(format: "%@ stat %.2f band head %.2f sub %.2f", theme.name, stat, head, sub))
+                }
+            }
+        }
+        #expect(failures.isEmpty, "\(failures)")
+        // The renderer raises an advisory, not a block, when a style fails the check.
+        var shot = try fixture()
+        shot.stat = "2×"
+        var style = SetStyle()
+        style.background = .solid(ScreenshotBuilder.RGBColor(0.5, 0.5, 0.5))
+        style.foreground = ScreenshotBuilder.RGBColor(0.52, 0.52, 0.52)
+        style.accent = ScreenshotBuilder.RGBColor(0.51, 0.51, 0.51)
+        style.composition = .bigNumber
+        var c = ShotRenderer.compose(shot: shot, style: style, sourceSize: phoneSource)
+        #expect(c.advisories.contains { $0.contains("stat color") } && c.warnings.isEmpty)
+        style.composition = .overlay
+        c = ShotRenderer.compose(shot: shot, style: style, sourceSize: phoneSource)
+        #expect(c.advisories.contains { $0.contains("frosted band") } && c.warnings.isEmpty)
+        // A theme that passes raises neither.
+        style = SetStyle()
+        for composition in [CaptionComposition.bigNumber, .overlay] {
+            style.composition = composition
+            let ok = ShotRenderer.compose(shot: shot, style: style, sourceSize: phoneSource)
+            #expect(!ok.advisories.contains { $0.contains("hard to read") }, "\(composition)")
         }
     }
 }

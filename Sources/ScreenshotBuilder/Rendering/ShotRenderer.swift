@@ -1,4 +1,5 @@
 import AppKit
+import CoreImage
 
 /// Preview and export use this exact composition. Coordinates have a top-left origin.
 @MainActor
@@ -25,6 +26,16 @@ enum ShotRenderer {
         /// Back to front. The last layer is this shot's own capture.
         var layers: [Layer] = []
         var callout: Callout?
+        /// The composition the shot really draws, after fallbacks.
+        var composition: CaptionComposition = .stacked
+        /// Big number: the stat, drawn above the headline in the accent color.
+        var stat: NSAttributedString?
+        var statRect: CGRect = .zero
+        /// The column the caption text wraps in. Its left edge and width are the editor's text field; the other
+        /// compositions do not share Stacked's centered measure.
+        var textColumn: CGRect = .zero
+        /// Overlay: the frosted band the caption sits on.
+        var panel: CGRect?
 
         /// The front layer, for callers that place a single device.
         var device: DeviceFrame? { layers.last?.device }
@@ -106,7 +117,7 @@ enum ShotRenderer {
         return CGRect(x: box.midX - size.width / 2, y: box.midY - size.height / 2, width: size.width, height: size.height)
     }
 
-    /// Caption type, scaled from the shorter canvas edge.
+    /// Caption type, scaled from the shorter canvas edge. The composition adjusts the measure and the headline size.
     struct CaptionMetrics {
         var margin: CGFloat
         var textWidth: CGFloat
@@ -114,45 +125,142 @@ enum ShotRenderer {
         var subSize: CGFloat
         var gap: CGFloat
         var separation: CGFloat
+        /// The most the whole caption block may take, Big number's stat included.
         var maxBand: CGFloat
-        init(style: SetStyle) {
+        /// The most the headline and subtitle may take.
+        var maxText: CGFloat
+        /// The most headline lines the composition allows before the caption counts as too long.
+        var headLines: Int
+        /// Big number: the stat's size, 2.2 times the headline.
+        var statSize: CGFloat
+        /// Big number: the stat's line plus its gap to the headline. Zero for every other composition.
+        var statBlock: CGFloat = 0
+        /// Side by side keeps its text in a measure of at most this fraction of the canvas width.
+        static let sideMeasure: CGFloat = 0.42
+        /// A portrait iPhone has the least room, so its measure is a little narrower.
+        static let portraitSideMeasure: CGFloat = 0.38
+        /// Portrait phone-shaped canvases (Side by side gives their device a taller box that may run off the outer edge).
+        var portraitPhone = false
+        /// Every composition but Stacked keeps words whole when it wraps a headline to match its group's line count.
+        var keepsWordsWhole = false
+        /// Side by side sets type a little smaller than Stacked, because the measure is narrow.
+        static let sideHeadFactor: CGFloat = 0.8
+        static let statFactor: CGFloat = 2.2
+        static let textOnlyFactor: CGFloat = 1.6
+
+        init(style: SetStyle, composition: CaptionComposition = .stacked, headScale: CGFloat = 1) {
             let size = style.size
             let unit = min(size.width, size.height)
             margin = unit * 0.06
             // Long lines read poorly on wide canvases; cap the measure.
             textWidth = min(size.width - margin * 2, unit * 1.2)
-            headSize = unit * 0.082 * style.textSize.scale
+            var headFactor: CGFloat = 1
+            var subLines = 2
+            keepsWordsWhole = composition != .stacked
+            headLines = 2
+            switch composition {
+            case .stacked, .bigNumber:
+                break
+            case .sideBySide:
+                let family = DeviceSpec.for(style.preset).family
+                portraitPhone = (family == .phone || family == .classicPhone) && !style.landscape
+                textWidth = min(textWidth, size.width * (portraitPhone ? Self.portraitSideMeasure : Self.sideMeasure))
+                headFactor = Self.sideHeadFactor * headScale
+                headLines = 3
+                subLines = 3
+            case .overlay:
+                // The band's padding comes out of the measure, so the band itself spans the usual width.
+                textWidth -= margin * 1.2
+            case .textOnly:
+                headFactor = Self.textOnlyFactor
+                headLines = 3
+            }
+            headSize = unit * 0.082 * style.textSize.scale * headFactor
             subSize = unit * 0.040 * style.textSize.scale
             gap = unit * 0.022 * style.textSize.scale
             separation = unit * 0.038
-            // Room for two headline lines and two subtitle lines.
+            statSize = headSize * Self.statFactor
+            // Room for the allowed headline lines and subtitle lines.
             let head = CaptionFont.lineHeight(style.headlineFont(size: headSize)) * 0.96
             let sub = CaptionFont.lineHeight(style.subtitleFont(size: subSize)) * 1.08
-            maxBand = head * 2 + gap + sub * 2
+            maxText = head * CGFloat(headLines) + gap + sub * CGFloat(subLines)
+            if composition == .bigNumber {
+                statBlock = ceil(CaptionFont.lineHeight(ShotRenderer.statFont(style: style, size: statSize)) * Self.statLineHeight) + gap * 0.5
+            }
+            maxBand = maxText + statBlock
         }
+        static let statLineHeight: CGFloat = 0.9
     }
 
-    /// Caption geometry shared by a whole set, so headlines start on one line and screenshots align.
+    /// Caption geometry shared by shots of one composition, so headlines start on one line and screenshots align.
+    /// `height`, `lines`, and `badgeRow` are the Stacked group's values; `groups` holds one band per composition in the set.
+    /// Mixed compositions share nothing but the canvas margins.
     struct CaptionBand: Equatable {
+        struct Group: Equatable {
+            var height: CGFloat
+            /// Headline line count for the group. Short headlines wrap to match when they can.
+            var lines: Int
+            /// Any shot in the group has a badge, so every shot reserves the badge row and headlines stay aligned.
+            var badgeRow = false
+            /// Side by side: the headline size shared by the group, shrunk until every headline fits.
+            var headScale: CGFloat = 1
+        }
         var height: CGFloat
-        /// Headline line count for the set. Short headlines wrap to match when they can.
         var lines: Int
-        /// Any shot in the set has a badge, so every shot reserves the badge row and headlines stay aligned.
         var badgeRow = false
+        var groups: [CaptionComposition: Group] = [:]
+
+        /// The band for shots drawn in `composition`, or nil when the set has none of them.
+        func group(for composition: CaptionComposition) -> Group? { groups[composition] }
     }
 
     /// Height of the badge pill plus its gap to the headline.
     static func badgeRowHeight(_ metrics: CaptionMetrics) -> CGFloat { metrics.subSize * 1.5 + metrics.gap }
 
-    /// Tall enough for the longest caption, never above two headline lines plus two subtitle lines.
+    /// One band per composition in the set, each tall enough for its longest caption.
     static func captionBand(shots: [Shot], style: SetStyle) -> CaptionBand {
-        let metrics = CaptionMetrics(style: style)
-        let lines = min(2, shots.map { naturalLines(headlineText($0.headline, accents: $0.accents, style: style, size: metrics.headSize),
-                                                     width: metrics.textWidth) }.max() ?? 1)
+        var members: [CaptionComposition: [Shot]] = [:]
+        for shot in shots { members[style.effectiveComposition(for: shot), default: []].append(shot) }
+        if members.isEmpty { members[.stacked] = [] }
+        var groups: [CaptionComposition: CaptionBand.Group] = [:]
+        for (composition, shots) in members { groups[composition] = bandGroup(shots: shots, style: style, composition: composition) }
+        let stacked = groups[.stacked] ?? CaptionBand.Group(height: 0, lines: 1)
+        return CaptionBand(height: stacked.height, lines: stacked.lines, badgeRow: stacked.badgeRow, groups: groups)
+    }
+
+    /// Tall enough for the longest caption, never above the composition's allowed headline and subtitle lines.
+    private static func bandGroup(shots: [Shot], style: SetStyle, composition: CaptionComposition) -> CaptionBand.Group {
+        let scale = headScale(for: shots, style: style, composition: composition)
+        let metrics = CaptionMetrics(style: style, composition: composition, headScale: scale)
+        let lines = min(metrics.headLines, shots.map { naturalLines(headlineText($0.headline, accents: $0.accents, style: style, size: metrics.headSize),
+                                                                    width: metrics.textWidth) }.max() ?? 1)
         let needed = shots.map { captionHeight(shot: $0, style: style, metrics: metrics, lines: lines).total }.max() ?? 0
         let badgeRow = shots.contains { !$0.badge.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         let extra = badgeRow ? badgeRowHeight(metrics) : 0
-        return CaptionBand(height: min(max(needed, 1), metrics.maxBand) + extra, lines: max(1, lines), badgeRow: badgeRow)
+        return CaptionBand.Group(height: min(max(needed, 1), metrics.maxText) + metrics.statBlock + extra,
+                                 lines: max(1, lines), badgeRow: badgeRow, headScale: scale)
+    }
+
+    /// Side by side shrinks its headline, in steps, until every headline in the group fits the measure without a split
+    /// word, so the group shares one size. Other compositions keep their size.
+    private static func headScale(for shots: [Shot], style: SetStyle, composition: CaptionComposition) -> CGFloat {
+        guard composition == .sideBySide else { return 1 }
+        for scale in [1, 0.92, 0.85, 0.78, 0.72] as [CGFloat] {
+            let metrics = CaptionMetrics(style: style, composition: composition, headScale: scale)
+            let fits = shots.allSatisfy { shot in
+                let text = headlineText(shot.headline, accents: shot.accents, style: style, size: metrics.headSize)
+                return naturalLines(text, width: metrics.textWidth) <= metrics.headLines
+                    && !hasWord(widerThan: metrics.textWidth, in: text)
+            }
+            if fits { return scale }
+        }
+        return 0.72
+    }
+
+    private static func hasWord(widerThan width: CGFloat, in text: NSAttributedString) -> Bool {
+        text.length > 0 && text.string.split(whereSeparator: { $0.isWhitespace }).contains { word in
+            NSAttributedString(string: String(word), attributes: text.attributes(at: 0, effectiveRange: nil)).size().width > width
+        }
     }
 
     private static func naturalLines(_ text: NSAttributedString, width: CGFloat) -> Int {
@@ -169,7 +277,12 @@ enum ShotRenderer {
         // Match the set's line count: wrap a one-line headline of three or more words onto two balanced lines.
         if let lines, lines > naturalLines(headline, width: metrics.textWidth),
            headline.string.split(separator: " ").count >= 3 {
-            var low = metrics.textWidth * 0.25, high = metrics.textWidth
+            // The new compositions never narrow the headline below its widest word, which would split it mid-word.
+            let widestWord = metrics.keepsWordsWhole
+                ? headline.string.split(whereSeparator: { $0.isWhitespace }).map {
+                    NSAttributedString(string: String($0), attributes: headline.attributes(at: 0, effectiveRange: nil)).size().width
+                }.max() ?? 0 : 0
+            var low = min(max(metrics.textWidth * 0.25, ceil(widestWord) + 1), metrics.textWidth), high = metrics.textWidth
             for _ in 0..<14 {
                 let mid = (low + high) / 2
                 if naturalLines(headline, width: mid) > lines { low = mid } else { high = mid }
@@ -180,7 +293,7 @@ enum ShotRenderer {
         let sub = shot.subtitle.isEmpty ? 0 : measuredHeight(subtitle, width: subWidth)
         var head = shot.headline.isEmpty ? 0 : measuredHeight(headline, width: headWidth)
         let gap = head > 0 && sub > 0 ? metrics.gap : 0
-        if head + gap + sub > metrics.maxBand + 0.5 {
+        if head + gap + sub > metrics.maxText + 0.5 {
             // The extra matching line would overflow the band; keep the natural wrap instead.
             headWidth = balancedWidth(headline, maxWidth: metrics.textWidth)
             head = shot.headline.isEmpty ? 0 : measuredHeight(headline, width: headWidth)
@@ -191,17 +304,28 @@ enum ShotRenderer {
     static func compose(shot: Shot, style: SetStyle, sourceSize: CGSize, captionBand: CaptionBand? = nil,
                         companionSize: CGSize? = nil) -> Composition {
         let size = style.size
-        let metrics = CaptionMetrics(style: style)
+        let composition = style.effectiveComposition(for: shot)
+        let group = captionBand?.group(for: composition)
+        let metrics = CaptionMetrics(style: style, composition: composition,
+                                     headScale: group?.headScale ?? Self.headScale(for: [shot], style: style, composition: composition))
         let margin = metrics.margin
         let hasCaption = style.layout.hasCaption
-        let headline = headlineText(shot.headline, accents: shot.accents, style: style, size: metrics.headSize)
-        let subtitle = subtitleText(shot.subtitle, style: style, size: metrics.subSize)
-        let caption = captionHeight(shot: shot, style: style, metrics: metrics, lines: captionBand?.lines)
-        let needed = caption.total
+        // Only Stacked and Big number take layout room for the caption. Side by side, Overlay, and Text only place it themselves.
+        let stacksCaption = hasCaption && (composition == .stacked || composition == .bigNumber)
+        let captionOnTop = (composition == .stacked || composition == .bigNumber) && style.layout.captionOnTop
+        let hasDevice = composition != .textOnly
+        // Side by side always sets left-aligned text.
+        var textStyle = style
+        if composition == .sideBySide { textStyle.alignment = .leading }
+        let headline = headlineText(shot.headline, accents: shot.accents, style: textStyle, size: metrics.headSize)
+        let subtitle = subtitleText(shot.subtitle, style: textStyle, size: metrics.subSize)
+        let caption = captionHeight(shot: shot, style: style, metrics: metrics, lines: group?.lines)
+        let statExtra = composition == .bigNumber ? metrics.statBlock : 0
+        let needed = caption.total + statExtra
         let badgeText = shot.badge.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
-        let badgeRow = captionBand?.badgeRow ?? !badgeText.isEmpty
+        let badgeRow = group?.badgeRow ?? !badgeText.isEmpty
         let badgeExtra = hasCaption && badgeRow ? Self.badgeRowHeight(metrics) : 0
-        let captionHeight = hasCaption ? (captionBand?.height ?? metrics.maxBand + badgeExtra) : 0
+        let captionHeight = hasCaption ? (group?.height ?? (stacksCaption ? metrics.maxBand + badgeExtra : needed + badgeExtra)) : 0
         let separation = hasCaption ? metrics.separation : 0
         let top = margin * 1.25
         let spec = DeviceSpec.for(style.preset)
@@ -225,14 +349,60 @@ enum ShotRenderer {
             imageArea = CGRect(x: margin, y: topEdge, width: size.width - margin * 2, height: bottomEdge - topEdge)
             padFillY = min(1, CGFloat(style.imageScale) / 0.94)
         }
-        let available = isPad
+        var available = isPad
             ? imageArea.insetBy(dx: imageArea.width * (1 - style.imageScale) / 2, dy: imageArea.height * (1 - padFillY) / 2)
             : imageArea.insetBy(dx: imageArea.width * (1 - style.imageScale) / 2,
                                 dy: imageArea.height * (1 - style.imageScale) / 2)
+        let textWidth = metrics.textWidth
+        /// Where the device group may sit side to side. The whole canvas, except in Side by side.
+        var zone = CGRect(origin: .zero, size: size)
+        /// Side by side: the left edge of the text column.
+        var sideColumnX: CGFloat = margin
+        var sideCaptionRight = false
+        switch composition {
+        case .stacked, .bigNumber, .textOnly:
+            break
+        case .overlay:
+            // The device takes the whole image area, margins aside; the frosted band sits over its lower third.
+            imageArea = CGRect(x: margin, y: top, width: size.width - margin * 2, height: size.height - top - margin)
+            available = imageArea.insetBy(dx: imageArea.width * (1 - style.imageScale) / 2,
+                                          dy: imageArea.height * (1 - style.imageScale) / 2)
+        case .sideBySide:
+            // Caption on the left half and device on the right, except Hero left, which pushes the device left and so
+            // takes the caption to the right. The device box is vertically centered; on a portrait iPhone it is 0.62 of
+            // the canvas height tall.
+            let captionRight = shot.arrangement == .heroLeft
+            sideCaptionRight = captionRight
+            sideColumnX = captionRight ? size.width - margin - textWidth : margin
+            let gutter = margin * 0.6
+            var zoneMin = captionRight ? 0 : sideColumnX + textWidth + gutter
+            var zoneMax = captionRight ? sideColumnX - gutter : size.width
+            var boxMin = captionRight ? margin * 0.6 : zoneMin
+            var boxMax = captionRight ? zoneMax : size.width - margin * 0.6
+            var boxHeight = size.height - margin * 1.25 * 2
+            if metrics.portraitPhone {
+                // A half canvas cannot hold a device 0.62 of the canvas height tall (that is about 0.65 of the width) beside
+                // the text. The device may run off the outer canvas edge by up to 8% of its width instead.
+                boxHeight = min(boxHeight, size.height * 0.62)
+                let aspect = frameStyle == .device ? DeviceFrame.outerSize(spec, landscape: false) : sourceSize
+                let reach = captionRight ? zoneMax : size.width - zoneMin
+                let wanted = boxHeight * aspect.width / aspect.height
+                if wanted * 0.92 > reach {
+                    let width = reach / 0.92
+                    if captionRight { boxMin = zoneMax - width; zoneMin = boxMin } else { boxMax = zoneMin + width; zoneMax = boxMax }
+                }
+            }
+            zone = CGRect(x: zoneMin, y: 0, width: zoneMax - zoneMin, height: size.height)
+            imageArea = CGRect(x: boxMin, y: (size.height - boxHeight) / 2, width: boxMax - boxMin, height: boxHeight)
+            available = imageArea.insetBy(dx: imageArea.width * (1 - style.imageScale) / 2,
+                                          dy: imageArea.height * (1 - style.imageScale) / 2)
+        }
+        // Only Stacked and Big number honor the bleed layouts.
+        let bleeds = (composition == .stacked || composition == .bigNumber) && (style.layout == .bleedBottom || style.layout == .bleedTop)
         /// Fits content in the image area. Bleed layouts grow the box past one canvas edge
         /// and pin the content to the opposite edge, so the device runs off the canvas.
         func place(_ aspect: CGSize) -> CGRect {
-            guard style.layout == .bleedBottom || style.layout == .bleedTop else { return Self.fit(aspect, in: available) }
+            guard bleeds else { return Self.fit(aspect, in: available) }
             // Bleed: a device wider than the normal fit, pinned below the caption, so it runs off the far edge.
             var width = size.width * 0.96 * style.imageScale
             var height = width * aspect.height / aspect.width
@@ -245,8 +415,8 @@ enum ShotRenderer {
             return CGRect(x: available.midX - width / 2, y: y, width: width, height: height)
         }
         let rotatedDevice = style.landscape && style.preset != .mac
-        // Duo needs a second capture; without one (a one-shot set) the shot draws as Standard.
-        let arrangement: Arrangement = shot.arrangement == .duo && companionSize == nil ? .standard : shot.arrangement
+        // Duo needs a second capture; without one (a one-shot set) the shot draws as Standard. Text only has no device.
+        let arrangement: Arrangement = !hasDevice || (shot.arrangement == .duo && companionSize == nil) ? .standard : shot.arrangement
         let companionSize = companionSize ?? sourceSize
         /// Builds a layer that fills `box` with a device (or the bare capture) and fits `capture` inside.
         func layer(in box: CGRect, capture: CGSize, rotation: CGFloat = 0, companion: Bool = false) -> Layer {
@@ -304,27 +474,57 @@ enum ShotRenderer {
         func scaled(_ r: CGRect, _ k: CGFloat, dx: CGFloat = 0, dy: CGFloat = 0) -> CGRect {
             CGRect(x: r.midX - r.width * k / 2 + dx, y: r.midY - r.height * k / 2 + dy, width: r.width * k, height: r.height * k)
         }
+        // Overlay: a frosted band over the device's lower third, wide enough for the text plus its padding.
+        let panelPad = margin * 0.6
+        var panel: CGRect?
+        if composition == .overlay && hasCaption {
+            let height = captionHeight + panelPad * 2
+            let bottom = min(base.maxY - base.height * 0.04, size.height - margin * 0.8)
+            panel = CGRect(x: (size.width - textWidth - panelPad * 2) / 2, y: bottom - height,
+                           width: textWidth + panelPad * 2, height: height)
+        }
         // The band is shared across the set and captions start at its top, so headlines share a line.
-        let captionTop = style.layout.captionOnTop ? top : size.height - margin * 1.6 - captionHeight
-        let badgeY = style.layout.captionOnTop ? captionTop : captionTop + max(0, captionHeight - needed - badgeExtra)
+        // Stacked and Big number sit at the top or bottom edge. Side by side and Text only center their band on the
+        // canvas, and Overlay sits inside its panel, each starting its text at the band's top.
+        let captionTop: CGFloat
+        switch composition {
+        case .stacked, .bigNumber: captionTop = captionOnTop ? top : size.height - margin * 1.6 - captionHeight
+        case .sideBySide, .textOnly: captionTop = (size.height - captionHeight) / 2
+        case .overlay: captionTop = (panel?.minY ?? 0) + panelPad
+        }
+        let stacked = composition == .stacked || composition == .bigNumber
+        let badgeY = captionOnTop || !stacked ? captionTop : captionTop + max(0, captionHeight - needed - badgeExtra)
         let textY = badgeY + badgeExtra
-        let textWidth = metrics.textWidth
+        let headY = textY + statExtra
         func textRect(width: CGFloat, y: CGFloat, height: CGFloat) -> CGRect {
-            let x = style.alignment == .center ? (size.width - width) / 2 : (size.width - textWidth) / 2
+            let x = composition == .sideBySide ? sideColumnX
+                : style.alignment == .center ? (size.width - width) / 2 : (size.width - textWidth) / 2
             return CGRect(x: x, y: y, width: width, height: height)
         }
         let gap = caption.head > 0 && caption.sub > 0 ? metrics.gap : 0
-        let headlineRect = textRect(width: caption.headWidth, y: textY, height: caption.head)
-        let subtitleRect = textRect(width: caption.subWidth, y: textY + caption.head + gap, height: caption.sub)
+        let headlineRect = textRect(width: caption.headWidth, y: headY, height: caption.head)
+        let subtitleRect = textRect(width: caption.subWidth, y: headY + caption.head + gap, height: caption.sub)
         var badge: NSAttributedString?
         var badgeRect = CGRect.zero
         if hasCaption && !badgeText.isEmpty {
             let text = Self.badgeText(badgeText.uppercased(), style: style, size: metrics.subSize * 0.62)
             let pillHeight = metrics.subSize * 1.5
             let pillWidth = ceil(text.size().width) + pillHeight * 1.1
-            let x = style.alignment == .center ? (size.width - pillWidth) / 2 : (size.width - textWidth) / 2
+            let x = composition == .sideBySide ? sideColumnX
+                : style.alignment == .center ? (size.width - pillWidth) / 2 : (size.width - textWidth) / 2
             badge = text
             badgeRect = CGRect(x: x, y: badgeY, width: pillWidth, height: pillHeight)
+        }
+        // Big number: the stat shrinks to one line when it is too wide, and the shot warns if it still cannot fit.
+        var stat: NSAttributedString?
+        var statRect = CGRect.zero
+        var statFits = true
+        if composition == .bigNumber {
+            let fitted = Self.fittedStat(shot.stat, style: style, size: metrics.statSize, width: textWidth)
+            let width = min(textWidth, ceil(fitted.text.size().width))
+            stat = fitted.text
+            statFits = fitted.fits
+            statRect = textRect(width: width, y: textY, height: metrics.statBlock - metrics.gap * 0.5)
         }
         let degrees = CGFloat.pi / 180
         var layers: [Layer] = []
@@ -336,11 +536,11 @@ enum ShotRenderer {
             // The canvas y-axis points down, so a positive angle turns clockwise: the device's top leans right.
             let sign: CGFloat = arrangement == .tiltRight ? 1 : -1
             var tiltScale: CGFloat = 0.97
-            if isPad && style.layout != .bleedBottom && style.layout != .bleedTop {
-                // The fuller iPad fit leaves little room, so shrink until the rotated corners stay inside it.
+            if (isPad || composition == .sideBySide) && !bleeds {
+                // The fuller iPad fit (and a Side by side half) leaves little room, so shrink until the rotated corners stay inside it.
                 let lean = 8 * degrees
                 tiltScale = min(tiltScale, available.height / (base.height * cos(lean) + base.width * sin(lean)),
-                                (size.width - margin * 1.6) / (base.width * cos(lean) + base.height * sin(lean)))
+                                (zone.width - margin * 1.6) / (base.width * cos(lean) + base.height * sin(lean)))
             }
             layers = [layer(in: scaled(base, tiltScale, dx: sign * base.width * 0.05), capture: sourceSize, rotation: sign * 8 * degrees)]
         case .heroLeft, .heroRight:
@@ -348,16 +548,18 @@ enum ShotRenderer {
             // so left-aligned app labels stay whole. Start from the plain fit, not a bleed placement.
             let plain = Self.fit(objectAspect, in: available)
             // Width cap leaves room for the lean and a small margin on portrait canvases.
-            var r = scaled(plain, min(1.28, size.width * 0.8 / plain.width))
-            if style.layout.hasCaption && !style.layout.captionOnTop {
+            var r = scaled(plain, min(1.28, zone.width * 0.8 / plain.width))
+            if stacksCaption && !captionOnTop {
                 r.origin.y = available.maxY - r.height
+            } else if composition == .sideBySide {
+                r.origin.y = available.midY - r.height / 2
             } else {
                 r.origin.y = style.layout.hasCaption ? available.minY + available.height * 0.02 : size.height * 0.12
             }
-            // Allow for the 4° lean, so no rotated corner leaves the canvas.
+            // Allow for the 4° lean, so no rotated corner leaves the canvas (or, in Side by side, its half).
             let lean = 4 * degrees
             let extra = (r.height * sin(lean) + r.width * cos(lean) - r.width) / 2
-            r.origin.x = arrangement == .heroRight ? size.width - r.width - margin * 0.5 - extra : margin * 0.5 + extra
+            r.origin.x = arrangement == .heroRight ? zone.maxX - r.width - margin * 0.5 - extra : zone.minX + margin * 0.5 + extra
             // Lean the device's top toward the canvas center.
             layers = [layer(in: r, capture: sourceSize, rotation: (arrangement == .heroRight ? -4 : 4) * degrees)]
         case .duo:
@@ -393,7 +595,8 @@ enum ShotRenderer {
             let unit = min(size.width, size.height)
             let safe = CGRect(origin: .zero, size: size).insetBy(dx: margin, dy: margin)
             let pad = unit * 0.012
-            let obstacles = (hasCaption ? [headlineRect, subtitleRect, badgeRect] : [])
+            // Zoom is Stacked or Big number only (the others fall back to Stacked), so the card clears the stacked caption.
+            let obstacles = (stacksCaption ? [statRect, headlineRect, subtitleRect, badgeRect] : [])
                 .filter { $0.width > 0 && $0.height > 0 }.map { $0.insetBy(dx: -pad, dy: -pad) }
             let floorZoom: CGFloat = spec.family == .laptop ? 1.5 : 1.6
             let custom = shot.calloutRegion == .custom ? shot.calloutRect : nil
@@ -403,10 +606,10 @@ enum ShotRenderer {
                 box.origin.x = max(box.minX, margin * 0.8)
                 // Settle the device clear of the caption first, so the card is placed against its final position.
                 // A shrunken device hugs the caption instead of leaving a gap under it.
-                if hasCaption {
+                if stacksCaption {
                     let inset = available.height * 0.03
-                    box.origin.y = style.layout.captionOnTop ? max(available.minY, min(box.minY, available.minY + inset))
-                                                             : min(available.maxY - box.height, max(box.minY, available.maxY - inset - box.height))
+                    box.origin.y = captionOnTop ? max(available.minY, min(box.minY, available.minY + inset))
+                                                : min(available.maxY - box.height, max(box.minY, available.maxY - inset - box.height))
                 }
                 let device = layer(in: box, capture: sourceSize)
                 let screen = device.imageRect
@@ -485,10 +688,10 @@ enum ShotRenderer {
             // A custom region too wide for the floor zoom at any device size gets the zoom that fits.
             var final = chosen ?? (custom != nil ? plan(scale: 0.6, zoom: 1.2, maxHeight: 0.24) : plan(scale: 0.92, zoom: zooms[0], maxHeight: 0.24))
             // Center device and card together, moving only away from the caption, so slack does not pool on one side.
-            if hasCaption, chosen != nil {
+            if stacksCaption, chosen != nil {
                 let group = final.device.frame.union(final.card)
                 var dy = available.midY - group.midY
-                dy = style.layout.captionOnTop ? max(0, min(dy, available.maxY - group.maxY)) : min(0, max(dy, available.minY - group.minY))
+                dy = captionOnTop ? max(0, min(dy, available.maxY - group.maxY)) : min(0, max(dy, available.minY - group.minY))
                 if dy != 0 {
                     final.device = layer(in: final.device.frame.offsetBy(dx: 0, dy: dy), capture: sourceSize)
                     final.card.origin.y += dy
@@ -504,7 +707,7 @@ enum ShotRenderer {
                 card.origin.y = min(max(card.minY, safe.minY), safe.maxY - card.height)
                 if obstacles.contains(where: { $0.intersects(card) }),
                    let blocked = obstacles.reduce(nil, { (acc: CGRect?, r) in acc.map { $0.union(r) } ?? r }) {
-                    card.origin.y = style.layout.captionOnTop ? blocked.maxY : blocked.minY - card.height
+                    card.origin.y = captionOnTop ? blocked.maxY : blocked.minY - card.height
                     card.origin.y = min(max(card.minY, safe.minY), safe.maxY - card.height)
                 }
                 final.card = card
@@ -514,8 +717,8 @@ enum ShotRenderer {
                               screen: final.device.imageRect, autoRect: autoRect)
         }
         // Keep rotated or enlarged devices clear of the caption: shift the group away from the caption side.
-        if hasCaption, arrangement != .callout, let bounds = layers.map(\.bounds).reduce(nil, { (acc: CGRect?, r) in acc.map { $0.union(r) } ?? r }) {
-            let shift = style.layout.captionOnTop ? max(0, available.minY - bounds.minY) : -max(0, bounds.maxY - available.maxY)
+        if stacksCaption, arrangement != .callout, let bounds = layers.map(\.bounds).reduce(nil, { (acc: CGRect?, r) in acc.map { $0.union(r) } ?? r }) {
+            let shift = captionOnTop ? max(0, available.minY - bounds.minY) : -max(0, bounds.maxY - available.maxY)
             if shift != 0 {
                 layers = layers.map { l in
                     var moved = layer(in: l.frame.offsetBy(dx: 0, dy: shift), capture: l.usesCompanion ? companionSize : sourceSize,
@@ -530,10 +733,14 @@ enum ShotRenderer {
            let bounds = layers.map(\.bounds).reduce(nil, { (acc: CGRect?, r) in acc.map { $0.union(r) } ?? r }) {
             let edge = isPad && arrangement == .duo ? margin : margin * 0.8
             var dx: CGFloat = 0
-            if bounds.width <= size.width - edge * 2 {
-                if bounds.minX < edge { dx = edge - bounds.minX } else if bounds.maxX > size.width - edge { dx = size.width - edge - bounds.maxX }
+            if bounds.width <= zone.width - edge * 2 {
+                if bounds.minX < zone.minX + edge { dx = zone.minX + edge - bounds.minX }
+                else if bounds.maxX > zone.maxX - edge { dx = zone.maxX - edge - bounds.maxX }
+            } else if composition == .sideBySide {
+                // Wider than its half (a tilted portrait phone): keep the caption side clear and run off the outer edge.
+                dx = sideCaptionRight ? zone.maxX - edge - bounds.maxX : zone.minX + edge - bounds.minX
             } else {
-                dx = size.width / 2 - bounds.midX
+                dx = zone.midX - bounds.midX
             }
             if dx != 0 {
                 layers = layers.map { l in
@@ -544,17 +751,25 @@ enum ShotRenderer {
                 }
             }
         }
-        let rect = layers.last?.imageRect ?? base
+        // Text only draws no device, whatever the arrangement placed above.
+        if !hasDevice { layers = [] }
+        let rect = hasDevice ? (layers.last?.imageRect ?? base) : .zero
         let device = layers.last?.device
         let fit = rect.width / sourceSize.width
         var warnings: [String] = []
         if hasCaption && needed > metrics.maxBand + 0.5 { warnings.append("Caption is too long. Shorten the headline or subtitle before export.") }
-        if hasCaption && [headline, subtitle].contains(where: { text in
-            text.length > 0 && text.string.split(whereSeparator: { $0.isWhitespace }).contains { word in
-                NSAttributedString(string: String(word), attributes: text.attributes(at: 0, effectiveRange: nil)).size().width > textWidth
-            }
-        }) { warnings.append("A caption word is too wide. Add a space or use a shorter word.") }
+        if hasCaption && [headline, subtitle].contains(where: { Self.hasWord(widerThan: textWidth, in: $0) }) {
+            warnings.append("A caption word is too wide. Add a space or use a shorter word.")
+        }
+        if !statFits { warnings.append("The stat is too wide. Shorten it.") }
         var advisories: [String] = []
+        if composition == .bigNumber, style.background.colors.contains(where: { Self.contrastRatio(style.accent, $0) < 3 }) {
+            advisories.append("The stat color is hard to read on this background. Pick a stronger accent.")
+        }
+        if composition == .overlay,
+           style.background.colors.contains(where: { Self.contrastRatio(style.foreground, Self.overlayBandColor(over: $0)) < 3 }) {
+            advisories.append("The headline is hard to read on the frosted band. Pick a stronger text color.")
+        }
         if fit > 1.001 { advisories.append("Source image is smaller than its export area. It may look soft.") }
         if let device, device.spec.family != .laptop {
             let screen = device.contentRect
@@ -577,7 +792,35 @@ enum ShotRenderer {
         return Composition(imageRect: rect,
                            headlineRect: headlineRect, subtitleRect: subtitleRect,
                            headline: headline, subtitle: subtitle, badge: badge, badgeRect: badgeRect, warnings: warnings,
-                           advisories: advisories, layers: layers, callout: callout)
+                           advisories: advisories, layers: layers, callout: callout, composition: composition, stat: stat,
+                           statRect: statRect,
+                           textColumn: CGRect(x: composition == .sideBySide ? sideColumnX : (size.width - textWidth) / 2, y: badgeY,
+                                              width: textWidth, height: max(0, captionHeight)),
+                           panel: panel)
+    }
+
+    // MARK: Contrast
+
+    private static func luminance(_ c: RGBColor) -> Double {
+        func channel(_ v: Double) -> Double { v <= 0.03928 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4) }
+        return 0.2126 * channel(c.red) + 0.7152 * channel(c.green) + 0.0722 * channel(c.blue)
+    }
+
+    /// WCAG contrast ratio of two colors.
+    static func contrastRatio(_ a: RGBColor, _ b: RGBColor) -> Double {
+        let (l1, l2) = (luminance(a), luminance(b))
+        return (max(l1, l2) + 0.05) / (min(l1, l2) + 0.05)
+    }
+
+    /// How opaque the Overlay band's background color is, over the blurred capture.
+    static let overlayBandOpacity: CGFloat = 0.75
+
+    /// The Overlay band's color where it sits on `stop`: the background at 75% over the blurred capture, which the check
+    /// takes as mid-gray. Text contrast is measured against this, not the plain background.
+    static func overlayBandColor(over stop: RGBColor) -> RGBColor {
+        let alpha = Double(overlayBandOpacity)
+        func mix(_ v: Double) -> Double { v * alpha + 0.5 * (1 - alpha) }
+        return RGBColor(mix(stop.red), mix(stop.green), mix(stop.blue))
     }
 
     /// The Duo back screen for `shot`: its chosen companion, else the next shot (wrapping), else nil.
@@ -718,6 +961,10 @@ enum ShotRenderer {
         }
         // AppKit text drawing needs the flipped context flag as well as the transform.
         NSGraphicsContext.current = NSGraphicsContext(cgContext: cg, flipped: true)
+        if let panel = composition.panel {
+            drawFrostedPanel(panel, in: cg, style: style, size: size, position: style.spanSet ? position : .single,
+                             glowBoost: glowBoost, unit: unit, pixelScale: pixelScale)
+        }
         if style.layout.hasCaption, let badge = composition.badge {
             // Accent pill with text in black or white, whichever reads better on the accent.
             let pill = composition.badgeRect
@@ -727,6 +974,9 @@ enum ShotRenderer {
             let textSize = badge.size()
             badge.draw(at: CGPoint(x: pill.midX - textSize.width / 2, y: pill.midY - textSize.height / 2))
         }
+        if let stat = composition.stat {
+            stat.draw(with: composition.statRect, options: [.usesLineFragmentOrigin, .usesFontLeading])
+        }
         if style.layout.hasCaption {
             composition.headline.draw(with: composition.headlineRect, options: [.usesLineFragmentOrigin, .usesFontLeading])
             composition.subtitle.draw(with: composition.subtitleRect, options: [.usesLineFragmentOrigin, .usesFontLeading])
@@ -734,6 +984,52 @@ enum ShotRenderer {
         context.flushGraphics()
         guard let output = cg.makeImage() else { throw BuilderError.message("Could not finish the export image.") }
         return NSBitmapImageRep(cgImage: output)
+    }
+
+    private static let blurContext = CIContext(options: [
+        .workingColorSpace: CGColorSpace(name: CGColorSpace.sRGB) as Any, .outputColorSpace: CGColorSpace(name: CGColorSpace.sRGB) as Any])
+
+    /// The Overlay band: a Gaussian blur of what is already drawn under it (edges clamped, so the blur does not darken
+    /// at the canvas border), the background at 75% on top, and a hairline edge.
+    private static func drawFrostedPanel(_ panel: CGRect, in cg: CGContext, style: SetStyle, size: CGSize, position: SetPosition,
+                                         glowBoost: CGFloat, unit: CGFloat, pixelScale: CGFloat) {
+        let radius = unit * 0.03
+        let path = CGPath(roundedRect: panel, cornerWidth: radius, cornerHeight: radius, transform: nil)
+        if let snapshot = cg.makeImage() {
+            let pixels = CGRect(x: panel.minX * pixelScale, y: panel.minY * pixelScale,
+                                width: panel.width * pixelScale, height: panel.height * pixelScale).integral
+            // Core Image's origin is bottom-left; the snapshot's rows run top down like the canvas.
+            let source = CGRect(x: pixels.minX, y: CGFloat(snapshot.height) - pixels.maxY, width: pixels.width, height: pixels.height)
+            let blurred = CIImage(cgImage: snapshot).clampedToExtent()
+                .applyingGaussianBlur(sigma: Double(unit * 0.014 * pixelScale)).cropped(to: source)
+            if let frosted = blurCI(blurred, source) {
+                cg.saveGState()
+                cg.addPath(path)
+                cg.clip()
+                NSImage(cgImage: frosted, size: panel.size)
+                    .draw(in: panel, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true,
+                          hints: [.interpolation: NSImageInterpolation.high])
+                cg.restoreGState()
+            }
+        }
+        cg.saveGState()
+        cg.addPath(path)
+        cg.clip()
+        cg.setAlpha(overlayBandOpacity)
+        cg.beginTransparencyLayer(auxiliaryInfo: nil)
+        drawBackground(style.background, in: cg, size: size, position: position, glowBoost: glowBoost)
+        cg.endTransparencyLayer()
+        cg.restoreGState()
+        cg.saveGState()
+        cg.addPath(path)
+        cg.setStrokeColor(CGColor(gray: 1, alpha: 0.14))
+        cg.setLineWidth(max(1, unit * 0.0016))
+        cg.strokePath()
+        cg.restoreGState()
+    }
+
+    private static func blurCI(_ image: CIImage, _ rect: CGRect) -> CGImage? {
+        blurContext.createCGImage(image, from: rect)
     }
 
     /// A thin-bordered card showing one band of the capture, magnified, joined to its marked source on the screen.
@@ -937,6 +1233,40 @@ enum ShotRenderer {
         // Tight tracking suits display sizes.
         output.addAttribute(.kern, value: -size * 0.012, range: NSRange(location: 0, length: output.length))
         return output
+    }
+
+    /// The Big number stat font: the heaviest real weight of the family, with tabular figures so digits keep one width.
+    nonisolated static func statFont(style: SetStyle, size: CGFloat) -> NSFont {
+        let base = style.font.font(size: size, weight: style.font.headlineWeights.last ?? style.weight)
+        let tabular: [NSFontDescriptor.FeatureKey: Int] = [.typeIdentifier: Int(kNumberSpacingType),
+                                                           .selectorIdentifier: Int(kMonospacedNumbersSelector)]
+        let descriptor = base.fontDescriptor.addingAttributes([.featureSettings: [tabular]])
+        return NSFont(descriptor: descriptor, size: size) ?? base
+    }
+
+    /// The stat in the accent color, tightly tracked, on one line. Newlines become spaces.
+    static func statText(_ text: String, style: SetStyle, size: CGFloat) -> NSAttributedString {
+        let font = statFont(style: style, size: size)
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = style.alignment.nsAlignment
+        paragraph.lineBreakMode = .byClipping
+        let natural = CaptionFont.lineHeight(font)
+        paragraph.minimumLineHeight = natural * CaptionMetrics.statLineHeight
+        paragraph.maximumLineHeight = natural * CaptionMetrics.statLineHeight
+        return NSAttributedString(string: text.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespacesAndNewlines),
+                                  attributes: [.font: font, .foregroundColor: style.accent.nsColor, .kern: -size * 0.03,
+                                               .paragraphStyle: paragraph])
+    }
+
+    /// The stat at `size`, or the largest step down to half that size which fits `width`. `fits` is false when none does.
+    static func fittedStat(_ text: String, style: SetStyle, size: CGFloat, width: CGFloat) -> (text: NSAttributedString, fits: Bool) {
+        var current = size
+        while current >= size * 0.5 {
+            let attributed = statText(text, style: style, size: current)
+            if attributed.size().width <= width { return (attributed, true) }
+            current *= 0.94
+        }
+        return (statText(text, style: style, size: size * 0.5), false)
     }
 
     static func badgeText(_ text: String, style: SetStyle, size: CGFloat) -> NSAttributedString {

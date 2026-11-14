@@ -32,6 +32,10 @@ struct Shot: Codable, Equatable, Identifiable {
     var macCropPosition: Double = 0.5
     /// Optional short label drawn as an accent pill above the headline, such as "NEW".
     var badge = ""
+    /// This shot's own caption composition. `nil` follows the set.
+    var composition: CaptionComposition?
+    /// The hero figure for Big number, free text such as "2×", "10k", or "$0". Empty means the shot draws Stacked.
+    var stat = ""
 
     init(id: UUID = UUID(), name: String, imageData: Data, headline: String = "", subtitle: String = "", accents: [String] = [],
          arrangement: Arrangement = .standard) {
@@ -57,6 +61,8 @@ struct Shot: Codable, Equatable, Identifiable {
         macFit = try c.decodeIfPresent(MacFit.self, forKey: .macFit) ?? .auto
         macCropPosition = try c.decodeIfPresent(Double.self, forKey: .macCropPosition) ?? 0.5
         badge = try c.decodeIfPresent(String.self, forKey: .badge) ?? ""
+        composition = try c.decodeIfPresent(CaptionComposition.self, forKey: .composition)
+        stat = try c.decodeIfPresent(String.self, forKey: .stat) ?? ""
     }
 
     /// Decoded images, keyed by content, so typing does not re-decode every capture.
@@ -106,8 +112,6 @@ enum Arrangement: String, Codable, CaseIterable, Identifiable {
         case .callout: "Zoom"
         }
     }
-    /// The curated sequence "Vary layouts" assigns, in order.
-    static let variedSequence: [Arrangement] = [.tiltRight, .duo, .callout, .heroLeft, .tiltLeft, .standard, .heroRight, .duo, .callout, .tiltRight]
 }
 
 /// How a Mac capture meets the laptop screen. Auto fills the screen for a display capture and floats a window.

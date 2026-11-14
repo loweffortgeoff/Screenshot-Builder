@@ -19,6 +19,12 @@ enum CaptionLayout: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+/// How the caption and the device share the canvas. Each shot can override the set's choice.
+enum CaptionComposition: String, Codable, CaseIterable, Identifiable {
+    case stacked = "Stacked", sideBySide = "Side by side", bigNumber = "Big number", overlay = "Overlay", textOnly = "Text only"
+    var id: Self { self }
+}
+
 enum CaptionFont: String, Codable, CaseIterable, Identifiable {
     case system = "System", rounded = "Rounded", serif = "Serif", condensed = "Condensed"
     case avenir = "Avenir Next", futura = "Futura", helvetica = "Helvetica Neue", georgia = "Georgia"
@@ -171,6 +177,8 @@ struct SetStyle: Codable, Equatable {
     var preset: OutputPreset = .phone69
     var landscape = false
     var layout: CaptionLayout = .above
+    /// The set's caption composition. A shot's own choice wins.
+    var composition: CaptionComposition = .stacked
     var font: CaptionFont = .system
     var weight: CaptionWeight = .heavy
     var textSize: CaptionSize = .medium
@@ -194,6 +202,23 @@ struct SetStyle: Codable, Equatable {
         return landscape && preset != .mac ? CGSize(width: base.height, height: base.width) : base
     }
     var dimensionLabel: String { "\(Int(size.width)) × \(Int(size.height))" }
+
+    /// The composition `shot` really draws with. Rules, in order:
+    /// - Screenshot only has no caption, so there is nothing to compose: Stacked, and Text only does not apply.
+    /// - Side by side needs one device beside the caption, so Duo and Zoom shots fall back to Stacked.
+    /// - Overlay hides the lower third of the screen under its band, where a Zoom source may sit and its card needs free
+    ///   canvas, so Zoom shots fall back to Stacked. Duo works.
+    /// - Big number needs a stat; an empty or blank one falls back to Stacked.
+    func effectiveComposition(for shot: Shot) -> CaptionComposition {
+        guard layout.hasCaption else { return .stacked }
+        let wanted = shot.composition ?? composition
+        switch wanted {
+        case .sideBySide where shot.arrangement == .duo || shot.arrangement == .callout: return .stacked
+        case .overlay where shot.arrangement == .callout: return .stacked
+        case .bigNumber where shot.stat.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty: return .stacked
+        default: return wanted
+        }
+    }
 
     /// The real faces captions draw with; a stored weight the family lacks maps to its nearest real face.
     func headlineFont(size: CGFloat) -> NSFont { font.font(size: size, weight: font.resolve(weight)) }
@@ -220,6 +245,7 @@ struct SetStyle: Codable, Equatable {
         preset = try c.decodeIfPresent(OutputPreset.self, forKey: .preset) ?? d.preset
         landscape = try c.decodeIfPresent(Bool.self, forKey: .landscape) ?? d.landscape
         layout = try c.decodeIfPresent(CaptionLayout.self, forKey: .layout) ?? d.layout
+        composition = try c.decodeIfPresent(CaptionComposition.self, forKey: .composition) ?? d.composition
         font = try c.decodeIfPresent(CaptionFont.self, forKey: .font) ?? d.font
         weight = try c.decodeIfPresent(CaptionWeight.self, forKey: .weight) ?? .bold // Version 1 drew bold headlines.
         textSize = try c.decodeIfPresent(CaptionSize.self, forKey: .textSize) ?? d.textSize

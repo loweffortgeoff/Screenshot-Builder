@@ -7,7 +7,7 @@ extension UTType {
 
 struct ShotDocument: FileDocument, Codable {
     static var readableContentTypes: [UTType] { [.shotSet] }
-    static let currentVersion = 3
+    static let currentVersion = 4
     var version = currentVersion
     var style = SetStyle()
     var shots: [Shot] = []
@@ -39,17 +39,36 @@ struct ShotDocument: FileDocument, Codable {
 }
 
 extension ShotDocument {
-    /// Gives each shot the next arrangement in the curated sequence. A one-shot set skips Duo.
+    /// The curated composition and arrangement pairs "Vary layouts" assigns, in order. Text only is an intro or outro
+    /// look, so it joins only a set of six or more shots; a shorter set goes straight on to Overlay.
+    static func variedSequence(shotCount: Int) -> [(composition: CaptionComposition, arrangement: Arrangement)] {
+        var pairs: [(CaptionComposition, Arrangement)] = [(.sideBySide, .standard), (.stacked, .duo), (.bigNumber, .standard),
+                                                          (.stacked, .callout)]
+        if shotCount >= 6 { pairs.append((.textOnly, .standard)) }
+        pairs += [(.overlay, .standard), (.sideBySide, .heroLeft), (.stacked, .tiltRight), (.bigNumber, .standard), (.stacked, .heroRight)]
+        return pairs
+    }
+
+    /// Gives each shot the next composition and arrangement pair in the curated sequence. A one-shot set skips Duo.
+    /// Big number needs a stat the app cannot invent, so a shot without one takes Stacked and Standard in that slot.
     mutating func varyLayouts() {
+        let sequence = Self.variedSequence(shotCount: shots.count)
         for index in shots.indices {
-            var arrangement = Arrangement.variedSequence[index % Arrangement.variedSequence.count]
+            var (composition, arrangement) = sequence[index % sequence.count]
+            if composition == .bigNumber && shots[index].stat.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                (composition, arrangement) = (.stacked, .standard)
+            }
             if shots.count < 2 && arrangement == .duo { arrangement = .tiltLeft }
+            shots[index].composition = composition
             shots[index].arrangement = arrangement
         }
     }
 
-    /// Sets every shot back to the standard arrangement.
+    /// Sets every shot back to the set's composition and the standard arrangement.
     mutating func makeUniform() {
-        for index in shots.indices { shots[index].arrangement = .standard }
+        for index in shots.indices {
+            shots[index].arrangement = .standard
+            shots[index].composition = nil
+        }
     }
 }
