@@ -167,6 +167,18 @@ struct ChapterFourTests {
         }
     }
 
+    @Test func aTooLongEyebrowStaysInItsColumnAndSaysSo() throws {
+        var style = SetStyle()
+        style.decor.eyebrow = .appName
+        style.decor.rule = true
+        style.decor.appName = String(repeating: "Very long app name ", count: 8)
+        let c = ShotRenderer.compose(shot: try fixture(), style: style, sourceSize: phoneSource)
+        #expect(c.eyebrowRect.maxX <= c.textColumn.maxX + 0.5, "the label stays inside the text column")
+        #expect(c.advisories.contains { $0.contains("eyebrow is too long") })
+        style.decor.appName = "Tucked"
+        #expect(!ShotRenderer.compose(shot: try fixture(), style: style, sourceSize: phoneSource).advisories.contains { $0.contains("eyebrow") })
+    }
+
     @Test func shapesShowBesideAShortLeftCaption() throws {
         var style = SetStyle()
         style.alignment = .leading

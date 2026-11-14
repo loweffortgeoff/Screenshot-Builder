@@ -625,6 +625,7 @@ enum ShotRenderer {
         var eyebrow: NSAttributedString?
         var eyebrowRect = CGRect.zero
         var ruleRect = CGRect.zero
+        var eyebrowFits = true
         if hasCaption && eyebrowRow {
             let drawsRule = style.decor.rule && composition != .textOnly
             var size = Self.eyebrowSize(metrics)
@@ -648,7 +649,9 @@ enum ShotRenderer {
             }
             if let text = row.text {
                 eyebrow = text
-                eyebrowRect = CGRect(x: x + row.rule + row.gap, y: rowsY, width: min(textWidth, ceil(text.size().width)), height: lineHeight)
+                let room = textWidth - row.rule - row.gap
+                eyebrowFits = ceil(text.size().width) <= room
+                eyebrowRect = CGRect(x: x + row.rule + row.gap, y: rowsY, width: min(room, ceil(text.size().width)), height: lineHeight)
             }
         }
         // Big number: the stat shrinks to one line when it is too wide, and the shot warns if it still cannot fit.
@@ -940,6 +943,7 @@ enum ShotRenderer {
         }
         if !statFits { warnings.append("The stat is too wide. Shorten it.") }
         var advisories: [String] = []
+        if !eyebrowFits { advisories.append("The eyebrow is too long, so its end is cut off. Shorten it.") }
         if composition == .bigNumber, style.background.colors.contains(where: { Self.contrastRatio(style.accent, $0) < 3 }) {
             advisories.append("The stat color is hard to read on this background. Pick a stronger accent.")
         }
@@ -1161,7 +1165,8 @@ enum ShotRenderer {
                 cg.setFillColor(style.accent.nsColor.cgColor)
                 cg.fillPath()
             }
-            composition.eyebrow?.draw(with: composition.eyebrowRect, options: [.usesLineFragmentOrigin, .usesFontLeading])
+            composition.eyebrow?.draw(with: composition.eyebrowRect,
+                                      options: [.usesLineFragmentOrigin, .usesFontLeading, .truncatesLastVisibleLine])
         }
         if let stat = composition.stat {
             stat.draw(with: composition.statRect, options: [.usesLineFragmentOrigin, .usesFontLeading])
@@ -1570,10 +1575,13 @@ enum ShotRenderer {
 
     /// Eyebrow text: tracked capitals in the accent color.
     static func eyebrowText(_ text: String, style: SetStyle, size: CGFloat) -> NSAttributedString {
-        NSAttributedString(string: text, attributes: [
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byTruncatingTail
+        return NSAttributedString(string: text, attributes: [
             .font: eyebrowFont(style: style, size: size),
             .foregroundColor: style.accent.nsColor,
-            .kern: size * 0.08])
+            .kern: size * 0.08,
+            .paragraphStyle: paragraph])
     }
 
     static func badgeText(_ text: String, style: SetStyle, size: CGFloat) -> NSAttributedString {
