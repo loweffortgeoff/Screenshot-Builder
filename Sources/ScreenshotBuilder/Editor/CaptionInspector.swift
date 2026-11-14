@@ -12,34 +12,6 @@ struct CaptionInspector: View {
 
     var body: some View {
         captionSection
-        arrangementSection
-    }
-
-    @ViewBuilder private var arrangementSection: some View {
-        Section {
-            ArrangementPicker(arrangement: $shot.arrangement)
-            if shot.arrangement == .duo {
-                Picker("Back screen", selection: $shot.companion) {
-                    Text("Next shot").tag(UUID?.none)
-                    ForEach(others, id: \.id) { other in Text(other.label).tag(UUID?.some(other.id)) }
-                }
-                .disabled(others.isEmpty)
-                if others.isEmpty {
-                    Text("Duo needs a second screenshot. Until you add one, this shot draws as Standard.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-            }
-            if shot.arrangement == .callout {
-                LabeledContent("Zoom on") {
-                    Picker("Zoom on", selection: $shot.calloutRegion) {
-                        ForEach(CalloutRegion.allCases) { Text($0.rawValue).tag($0) }
-                    }
-                    .pickerStyle(.segmented).labelsHidden().frame(maxWidth: 220)
-                }
-            }
-        } header: {
-            Text("Arrangement")
-        }
     }
 
     @ViewBuilder private var captionSection: some View {

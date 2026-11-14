@@ -201,11 +201,19 @@ struct EditorView: View {
                 }
                 StyleInspector(style: $document.style, tab: tab,
                                varyLayouts: document.shots.isEmpty ? nil : { varyLayouts() },
-                               makeUniform: document.shots.isEmpty ? nil : { makeUniform() })
+                               makeUniform: document.shots.isEmpty ? nil : { makeUniform() },
+                               arrangement: arrangementInspector)
             }
             .formStyle(.grouped)
         }
         .frame(minWidth: 300, idealWidth: 340, maxWidth: 400)
+    }
+
+    /// The selected shot's arrangement controls, placed by the Style tab under Layout.
+    private var arrangementInspector: AnyView? {
+        guard let index = selectedIndex else { return nil }
+        return AnyView(ArrangementInspector(shot: $document.shots[index], position: index + 1,
+                                            others: otherShots(excluding: index)))
     }
 
     /// Labels for every shot except `index`, for the Duo back-screen menu.

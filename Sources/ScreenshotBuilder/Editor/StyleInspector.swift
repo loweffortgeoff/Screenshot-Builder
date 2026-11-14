@@ -11,11 +11,17 @@ struct StyleInspector: View {
     /// Applies the curated arrangement sequence to the set, or resets it.
     var varyLayouts: (() -> Void)?
     var makeUniform: (() -> Void)?
+    /// The selected shot's arrangement section, shown right after the set layout.
+    var arrangement: AnyView?
 
     var body: some View {
         switch tab {
         case .caption: textSection
-        case .style: layoutSection; themeSection; backgroundSection
+        case .style:
+            layoutSection
+            if let arrangement { arrangement }
+            themeSection
+            backgroundSection
         case .device: deviceSection
         }
     }
@@ -76,7 +82,7 @@ struct StyleInspector: View {
             }
             if style.background.kind == .linear || style.background.kind == .mesh {
                 LabeledContent("Angle") {
-                    Slider(value: $style.background.angle, in: 0...360, step: 5)
+                    Slider(value: $style.background.angle, in: 0...360)
                         .frame(maxWidth: 150)
                 }
             }
@@ -169,7 +175,8 @@ struct StyleInspector: View {
                 }
             }
             LabeledContent("Size") {
-                Slider(value: $style.imageScale, in: 0.5...1, step: 0.01).frame(maxWidth: 150)
+                // No step: a stepped macOS slider draws a dense row of tick marks.
+                Slider(value: $style.imageScale, in: 0.5...1).frame(maxWidth: 150)
             }
             Toggle("Shadow", isOn: $style.shadow)
             if style.frameStyle == .device {
