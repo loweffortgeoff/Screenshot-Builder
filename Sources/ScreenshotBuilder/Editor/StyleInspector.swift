@@ -1,16 +1,29 @@
 import SwiftUI
 
+enum InspectorTab: String, CaseIterable, Identifiable {
+    case caption = "Caption", style = "Style", device = "Device"
+    var id: Self { self }
+}
+
 struct StyleInspector: View {
     @Binding var style: SetStyle
-    @State private var showBackground = false
-    @State private var showText = true
-    @State private var showDevice = true
+    let tab: InspectorTab
 
     var body: some View {
+        switch tab {
+        case .caption: textSection
+        case .style: layoutSection; themeSection; backgroundSection
+        case .device: deviceSection
+        }
+    }
+
+    @ViewBuilder private var layoutSection: some View {
         Section("Layout") {
             LayoutPicker(layout: $style.layout)
         }
+    }
 
+    @ViewBuilder private var themeSection: some View {
         Section {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 58), spacing: 8)], spacing: 10) {
                 ForEach(Theme.all) { theme in
@@ -26,7 +39,10 @@ struct StyleInspector: View {
             }
         }
 
-        Section("Background", isExpanded: $showBackground) {
+    }
+
+    @ViewBuilder private var backgroundSection: some View {
+        Section("Background") {
             Picker("Fill", selection: kind) {
                 ForEach(BackgroundKind.allCases) { Text($0.rawValue).tag($0) }
             }
@@ -60,7 +76,10 @@ struct StyleInspector: View {
             }
         }
 
-        Section(isExpanded: $showText) {
+    }
+
+    @ViewBuilder private var textSection: some View {
+        Section {
             Picker("Font", selection: $style.font) {
                 ForEach(CaptionFont.allCases) { font in
                     Text(font.rawValue).font(Font(font.font(size: 13, weight: .semibold))).tag(font)
@@ -89,7 +108,26 @@ struct StyleInspector: View {
         }
         .disabled(style.layout == .imageOnly)
 
-        Section(isExpanded: $showDevice) {
+    }
+
+    @ViewBuilder private var deviceSection: some View {
+        Section {
+            Picker("Size", selection: $style.preset) {
+                ForEach(OutputPreset.allCases) { Text($0.title).tag($0) }
+            }
+            if style.preset != .mac {
+                Picker("Orientation", selection: $style.landscape) {
+                    Text("Portrait").tag(false)
+                    Text("Landscape").tag(true)
+                }
+                .pickerStyle(.segmented)
+            }
+            LabeledContent("Export", value: "\(style.dimensionLabel) px PNG")
+        } header: {
+            Text("Output")
+        }
+
+        Section {
             Picker("Frame", selection: $style.frameStyle) {
                 ForEach(FrameStyle.allCases) { Text($0.rawValue).tag($0) }
             }

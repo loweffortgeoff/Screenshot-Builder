@@ -13,6 +13,7 @@ struct EditorView: View {
     @State private var thumbnails: [UUID: NSImage] = [:]
     // The filmstrip is the main navigator; the list sidebar stays one click away for reordering by drag.
     @State private var columns: NavigationSplitViewVisibility = .detailOnly
+    @State private var tab: InspectorTab = .style
 
     private var selectedIndex: Int? { document.shots.firstIndex(where: { $0.id == selection }) }
     private var canvasAspect: CGFloat { document.style.size.width / document.style.size.height }
@@ -65,15 +66,25 @@ struct EditorView: View {
                     }
                 }
                 .frame(minWidth: 360)
-                Form {
-                    if let index = selectedIndex {
-                        CaptionInspector(shot: $document.shots[index], position: index + 1, style: document.style,
-                                         replaceImage: { replacing = selection; importing = true })
+                VStack(spacing: 0) {
+                    Picker("Inspector", selection: $tab) {
+                        ForEach(InspectorTab.allCases) { Text($0.rawValue).tag($0) }
                     }
-                    StyleInspector(style: $document.style)
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .padding(.horizontal, 16)
+                    .padding(.top, 12)
+                    .padding(.bottom, 4)
+                    Form {
+                        if tab == .caption, let index = selectedIndex {
+                            CaptionInspector(shot: $document.shots[index], position: index + 1, style: document.style,
+                                             replaceImage: { replacing = selection; importing = true })
+                        }
+                        StyleInspector(style: $document.style, tab: tab)
+                    }
+                    .formStyle(.grouped)
                 }
-                .formStyle(.grouped)
-                .frame(minWidth: 300, idealWidth: 330, maxWidth: 400)
+                .frame(minWidth: 300, idealWidth: 340, maxWidth: 400)
             }
         }
         .toolbar {
@@ -141,7 +152,11 @@ struct EditorView: View {
             }
             Button("Done", role: .cancel) { exportedFolder = nil }
         } message: { Text("Saved \(document.shots.count) PNG images in a new folder.") }
-        .onAppear { ensureSelection() }
+        .onAppear {
+            ensureSelection()
+            // Start with nothing focused, so no field shows a focus ring on open.
+            DispatchQueue.main.async { NSApp.keyWindow?.makeFirstResponder(nil) }
+        }
         .onChange(of: document.shots.map(\.id)) { ensureSelection() }
         .frame(minWidth: 900, minHeight: 600)
     }

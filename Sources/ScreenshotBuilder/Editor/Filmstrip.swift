@@ -69,7 +69,7 @@ struct Filmstrip: View {
                 withAnimation { scroller.scrollTo(id, anchor: .center) }
             }
         }
-        .frame(height: canvasAspect < 1 ? 150 : 110)
+        .frame(height: canvasAspect < 1 ? 136 : 104)
         .background(.bar)
     }
 }

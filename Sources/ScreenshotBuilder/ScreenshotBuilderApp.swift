@@ -6,6 +6,6 @@ struct ScreenshotBuilderApp: App {
         DocumentGroup(newDocument: ShotDocument()) { file in
             EditorView(document: file.$document)
         }
-        .defaultSize(width: 1140, height: 780)
+        .defaultSize(width: 1320, height: 880)
     }
 }
