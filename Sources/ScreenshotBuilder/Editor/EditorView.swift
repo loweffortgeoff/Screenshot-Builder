@@ -268,6 +268,11 @@ struct EditorView: View {
                 let replacement = try Shot.importing(url)
                 document.shots[index].imageData = replacement.imageData
                 document.shots[index].name = replacement.name
+                // A custom Zoom region was snapped to the old capture's rows; on a new capture it could cut text.
+                if document.shots[index].calloutRegion == .custom {
+                    document.shots[index].calloutRegion = .auto
+                    document.shots[index].calloutRect = nil
+                }
             } else {
                 guard document.shots.count + urls.count <= 10 else {
                     throw BuilderError.message("Each App Store set can contain up to 10 screenshots. Import fewer images or start a new set.")

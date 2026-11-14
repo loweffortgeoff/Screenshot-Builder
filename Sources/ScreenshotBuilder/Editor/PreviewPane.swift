@@ -30,6 +30,7 @@ struct PreviewPane: View {
     @State private var pinchStart: CGFloat?
     @State private var editing: CanvasText?
     @State private var draft = ""
+    @State private var draftStart = ""
     @FocusState private var editorFocused: Bool
     @State private var drag: (target: DragTarget, translation: CGSize)?
 
@@ -70,7 +71,14 @@ struct PreviewPane: View {
                 await render(dimension: renderDimension(in: pane))
             }
             .onChange(of: fitPoints(in: pane) * displayScale, initial: true) { _, value in fitZoom = value }
-            .onChange(of: shot?.id) { editing = nil; drag = nil }
+            // Selecting another shot is a click-away: keep the edit on the shot it was made on.
+            .onChange(of: shot) { old, new in
+                guard old?.id != new?.id else { return }
+                if let old { commitEdit(shot: old) }
+                editing = nil; drag = nil
+            }
+            // Switching to Set view removes the pane; commit first.
+            .onDisappear { if let shot { commitEdit(shot: shot) } }
         }
         .background(Color(nsColor: .underPageBackgroundColor))
     }
@@ -209,7 +217,10 @@ struct PreviewPane: View {
     }
 
     private func beginEditing(_ text: CanvasText, shot: Shot) {
+        // Opening a second field commits the first, like any other click-away.
+        if editing != nil { commitEdit(shot: shot) }
         draft = shot[keyPath: text.keyPath]
+        draftStart = draft
         editing = text
         DispatchQueue.main.async { editorFocused = true }
     }
@@ -217,6 +228,8 @@ struct PreviewPane: View {
     private func commitEdit(shot: Shot) {
         guard let editing else { return }
         self.editing = nil
+        // An untouched editor writes nothing, so a stored newline is not rewritten and the document stays clean.
+        guard draft != draftStart else { return }
         var edited = shot
         let text = editing == .headline ? draft : draft.replacingOccurrences(of: "\n", with: " ")
         guard edited[keyPath: editing.keyPath] != text else { return }

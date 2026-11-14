@@ -75,6 +75,7 @@ struct ArrangementInspector: View {
 
     /// How a Mac capture sits in the MacBook screen, and which part of a cropped capture stays visible.
     @ViewBuilder private var macFitSection: some View {
+        let isCropped = isCropped // One compose per pass, not one per use.
         Section {
             LabeledContent("Fit") {
                 Picker("Fit", selection: $shot.macFit) {
@@ -91,7 +92,7 @@ struct ArrangementInspector: View {
                     }
                 }
             }
-            Text(fitNote).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Text(fitNote(cropped: isCropped)).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         } header: {
             Text("Shot \(position) on the Mac screen")
         }
@@ -120,11 +121,11 @@ struct ArrangementInspector: View {
         }
     }
 
-    private var fitNote: String {
+    private func fitNote(cropped: Bool) -> String {
         switch shot.macFit {
-        case .auto: isCropped ? "Auto found a full-screen capture, so it fills the screen. Drag to pick the part that shows."
-                              : "Auto fills the screen with full-screen captures and floats window captures on a wallpaper."
-        case .fill: isCropped ? "The capture covers the screen. Drag to pick the part that shows." : "The capture covers the screen."
+        case .auto: cropped ? "Auto found a full-screen capture, so it fills the screen. Drag to pick the part that shows."
+                            : "Auto fills the screen with full-screen captures and floats window captures on a wallpaper."
+        case .fill: cropped ?"The capture covers the screen. Drag to pick the part that shows." : "The capture covers the screen."
         case .window: "The capture floats on a wallpaper inside the screen."
         }
     }
