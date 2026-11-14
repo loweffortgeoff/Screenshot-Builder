@@ -1,6 +1,6 @@
 # Screenshot Builder — Chapter 3 spec: canvas, Zoom, iPad, Mac, and compositions
 
-Status: spec only, written 2026-11-13, updated 2026-11-14 with Geoff's hands-on findings (see "Hands-on findings"). Not approved. No implementation exists.
+Status: spec only, written 2026-11-13, updated 2026-11-14 with Geoff's hands-on findings and his answers (see "Hands-on findings" and "Resolved questions"). Not approved. No implementation exists.
 Branch `feature/pro-framing`, after `4c87fc2`.
 
 ## Why
@@ -59,7 +59,7 @@ Chapters 1 and 2 raised the ad-hoc UI council median from 3.8 to 7.5. Geoff acce
 | R4.1 | Re-measure the MacBook Air M5 bezel from Apple Design Resources (the license was already accepted, and nothing is bundled): lid outer radius, bezel per side, chin height, hinge, base depth, base front lip, and thumb notch. The current values give a thick chin. Store the new values with a source note, as `DeviceSpec` already does. | Spec values are recorded. The diagonal-method measurements are logged in the commit. |
 | R4.2 | Draw the base as a perspective deck: a darker hinge band, a lit top surface with a subtle gradient from back to front, a thin specular front lip, and rounded feet shadow. Draw the lid with an edge highlight and a faint glass reflection across the screen (white at 4%, diagonal). | Full-size render compared side by side with the Apple bezel PNG (scratchpad only): silhouette within 1.5% at every measured point. |
 | R4.3 | Add a **"Window only"** frame style for Mac. It draws the window capture with its own macOS corner radius and shadow on the canvas background, with no laptop. Many Mac App Store screenshots use this look. | Render check with a Mac window capture. |
-| R4.4 | **Display captures fill the screen (H3).** Today only a capture whose shape matches the MacBook display (2560 × 1664 or 16:10) fills it. Any other shape floats as a window, so a full-screen capture from an external display (for example 3440 × 1440) appears shrunk. Add a per-shot **Fit** choice for Mac: Auto (default), Fill screen, Window. Auto treats a capture as a display capture when it is opaque at all four corners, at least 1440 px tall, and wider than 1.5:1; otherwise as a window. Fill screen scales to cover the screen and crops the overflow, with a horizontal crop position (left / center / right, default center). Window keeps the current wallpaper float. The capture-fit advisory names the choice made and how much is cropped. | Unit tests: 3440 × 1440 opaque → display, fills the screen, crop ≤ 40% of the width; 2560 × 1664 → fills with no crop; a capture with transparent corners → window. Render check with Geoff's 3440 × 1440 capture. The existing `macCapturesFillOrFloatByAspect` cases still pass. |
+| R4.4 | **Display captures fill the screen (H3).** Today only a capture whose shape matches the MacBook display (2560 × 1664 or 16:10) fills it. Any other shape floats as a window, so a full-screen capture from an external display (for example 3440 × 1440) appears shrunk. Add a per-shot **Fit** choice for Mac: Auto (default), Fill screen, Window. Auto treats a capture as a display capture when it is opaque at all four corners, at least 1440 px tall, and wider than 1.5:1; otherwise as a window. Fill screen scales to cover the screen and crops the overflow. A free **Crop position** slider (0–100%, default 50%, center) sets which part of the overflow stays visible. It moves horizontally for wide captures and vertically for tall ones, and the preview updates live. Window keeps the current wallpaper float. The capture-fit advisory names the choice made and how much is cropped. | Unit tests: 3440 × 1440 opaque → display, fills the screen, crop ≤ 40% of the width; crop position 0%, 50%, and 100% show the left edge, the center, and the right edge of the capture; 2560 × 1664 → fills with no crop; a capture with transparent corners → window. Render check with Geoff's 3440 × 1440 capture. The existing `macCapturesFillOrFloatByAspect` cases still pass. |
 
 ### R5 — Caption compositions
 
@@ -78,7 +78,7 @@ Rules for all compositions:
 - **Alignment.** The shared caption band (`CaptionBand`) extends to group shots by composition. Shots with the same composition share a band, so their headlines align. Mixed compositions align their top margins only.
 - **Vary layouts** may assign compositions as well as arrangements. The curated sequence becomes pairs, for example Side by side + Standard, Stacked + Duo, Big number + Standard, Stacked + Zoom, Text only (if 6 or more shots).
 - **Contrast.** The contrast test covers the stat color (accent) and the overlay band.
-- **File format.** Version 4. New keys: `composition`, `stat`, `calloutRect`, `calloutCardOffset`, `calloutMarker`, `lensStyle`, `macFit`, `macCropPosition`, and `frameStyle` value `windowOnly`. Older files decode with Stacked and no stat.
+- **File format.** Version 4. New keys: `composition`, `stat`, `calloutRect`, `calloutCardOffset`, `calloutMarker`, `lensStyle`, `macFit`, `macCropPosition` (Double 0–1), and `frameStyle` value `windowOnly`. Older files decode with Stacked and no stat.
 
 ## UI summary
 
@@ -92,7 +92,7 @@ Rules for all compositions:
 ```
 Shot: + composition: Composition? (nil = follow set) · + stat: String
       · calloutRegion gains .custom · + calloutRect: CGRect? · + calloutCardOffset: CGPoint?
-      · + calloutMarker (.spotlight default) · + lensStyle · + macFit (.auto) · + macCropPosition
+      · + calloutMarker (.spotlight default) · + lensStyle · + macFit (.auto) · + macCropPosition: Double (0.5)
 SetStyle: + composition: Composition (default .stacked)
 FrameStyle: + .windowOnly (Mac only; other presets treat it as .rounded)
 ShotDocument.currentVersion = 4
@@ -138,7 +138,7 @@ Geoff tested the chapter 2 build (`530d33c`, MacBook Pro) with To-Do app capture
 | H2 | "Bold weight is very close to Heavy." Checked on 2026-11-14: in Futura, Heavy and Bold resolve to the same face (`Futura-Bold`), Black switches to `Futura-CondensedExtraBold`, Georgia resolves every weight to `Georgia-Bold`, and Helvetica Neue Black is condensed. | Mac shot 2 | R2.5, which now requires real, distinct weights only. |
 | H3 | "Image appears to get resized. This is the entire Mac screen, corner to corner." A 3440 × 1440 full-screen capture from an external display does not match the MacBook shape, so it is drawn as a floating window. | Mac shot 3 | R4.4, which now adds display-capture detection and Fill screen. |
 | H4 | Duo: "Oh, THIS is what Duo meant. Pretty neat." Also "Use Duo to mask weaker images." | iPhone shots 2 and 8 | Validation. No change. |
-| H5 | Tilt and Hero work. "Hero left: slightly less angle than Tilt L" (correct: Hero leans 4°, Tilt 8°). Shot 7 is labelled "Hero Right" but shows a Duo of Calendar and Today; read as Geoff choosing Duo for that shot. The renderer draws Hero with a single device, and tests cover it. | iPhone shots 4–7 | No change. Confirm with Geoff. |
+| H5 | Tilt and Hero work. "Hero left: slightly less angle than Tilt L" (correct: Hero leans 4°, Tilt 8°). Shot 7 is labelled "Hero Right" but shows a Duo of Calendar and Today. Geoff confirmed on 2026-11-14 that Duo was intended and the label was a stale caption. | iPhone shots 4–7 | No change. |
 | H6 | iPad output not tested: no iPad Pro on hand. iPad output does not need a device; captures from the iPad Pro 13-inch simulator work (used in chapter 2). An iPad mini capture is a different shape and would show the capture-fit warning in an iPad Pro frame. | none | Stays open. Chapter 3 milestone P re-checks iPad with simulator captures; Geoff's iPad acceptance stays on the TODO list. |
 
 Decision (2026-11-14): fold H1–H3 into chapter 3 instead of a separate fix pass. None blocks use or corrupts data. Each one touches code that chapter 3 rewrites anyway (the Zoom marker and drag in milestone Z/E, the weight control in E, the Mac fit in P), so fixing them first would be redone. Chapter 3 milestone Z (Zoom) remains first because H1 is the most visible.
@@ -149,8 +149,11 @@ Decision (2026-11-14): fold H1–H3 into chapter 3 instead of a separate fix pas
 2. Overlay: blur needs Core Image in the renderer. Is that acceptable, or should Overlay use a flat 85% band instead?
 3. Set view reorder: should it replace the hidden list sidebar entirely, so the sidebar can be removed?
 4. Mac "Window only": should it be the default frame for the Mac preset?
-5. Fill screen for wide display captures crops the sides. Is center crop with a left / center / right choice enough, or do you want a free crop slider?
-6. Shot 7 in the 2026-11-14 test is labelled "Hero Right" but shows a Duo. Did you choose Duo there on purpose?
+
+## Resolved questions (Geoff, 2026-11-14)
+
+- **Shot 7 label:** Duo was intended; "Hero Right" was a stale caption. No app change.
+- **Crop for wide display captures:** use a free crop-position slider, not left / center / right, because it gives finer control (R4.4).
 
 ## Risks
 
