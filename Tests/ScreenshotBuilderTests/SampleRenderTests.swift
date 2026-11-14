@@ -31,7 +31,13 @@ struct SampleRenderTests {
         if let finish = env["SB_FINISH"] { document.style.finish = finish }
         document.style.landscape = env["SB_LANDSCAPE"] == "1"
         if let raw = env["SB_FRAME"], let frame = FrameStyle(rawValue: raw) { document.style.frameStyle = frame }
-        for (index, caption) in Self.captions.enumerated() {
+        // SB_CAPTIONS: a file of "headline|subtitle" lines, one per capture, overrides the built-in captions.
+        let captions: [(String, String)] = env["SB_CAPTIONS"].flatMap { try? String(contentsOfFile: $0, encoding: .utf8) }
+            .map { $0.split(separator: "\n").map { line in
+                let parts = line.split(separator: "|", maxSplits: 1).map(String.init)
+                return (parts.first ?? "", parts.count > 1 ? parts[1] : "")
+            } } ?? Self.captions
+        for (index, caption) in captions.enumerated() {
             let url = samples.appendingPathComponent(String(format: "%02d.png", index + 1))
             guard FileManager.default.fileExists(atPath: url.path) else { continue }
             var shot = try Shot.importing(url)
