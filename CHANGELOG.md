@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Chapter 4 (branch `feature/chapter-4`, not merged): six starter looks (Orb, Bokeh, Editorial, Scoreboard, Rays, Calm) that style the whole set in one click, with six matching themes; an Advanced background section with one backdrop layer (Orb, Bokeh, Arcs, Rays) and a per-shot hue shift; layout-placed decorations (an eyebrow label for the app name, a section, or a number, an accent rule, accent shapes), editable on the canvas; Lead, which replaces Side by side on portrait iPhone; a theme-tinted Zoom card with a softer shadow, and Zoom crops that no longer end on a section heading; composition tiles, a fixed-width inspector, and "All shots" or "This shot only" headers. Project format version 5. The council review was dropped by Geoff's call.
 - Chapter 3 (branch `feature/chapter-3`, not merged): caption compositions (Stacked, Side by side, Big number with a stat, Overlay with a frosted band, Text only) with a per-shot override; project format version 4.
 - Mac: display captures fill the MacBook screen with a crop-position slider and a Fit choice (Auto, Fill screen, Window); a Window only frame; a MacBook redrawn from a fresh bezel measurement (deck, lit notch, specular lip, feet, contact shadow).
 - iPad: devices fill at least about 70% of the width in portrait; Duo is grounded; glows are stronger on mesh themes.

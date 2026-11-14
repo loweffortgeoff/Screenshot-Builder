@@ -1,6 +1,6 @@
 # Screenshot Builder chapter 4 spec: starter looks and a product pass
 
-Status: Approved by Geoff on 2026-11-14 with answers Q1 B, Q2 keep the 1.6× floor, and the recommended defaults for Q3 to Q7. Implementation on `feature/chapter-4`. Written 2026-11-14 on the MacBook Pro (macOS 27.2, Xcode 27.2) from `main` at `79a6186`.
+Status: Approved by Geoff on 2026-11-14 with answers Q1 B, Q2 keep the 1.6× floor, and the recommended defaults for Q3 to Q7. Implemented on `feature/chapter-4` (not merged). R8, the council review, was dropped by Geoff on 2026-11-14; success is judged by his hands-on check (`docs/superpowers/plans/2026-11-14-chapter-4-hands-on.md`). R6.4 (Style tab fits without scrolling) is not met, see DECISIONS. Written 2026-11-14 on the MacBook Pro (macOS 27.2, Xcode 27.2) from `main` at `79a6186`.
 Inputs: Geoff's note "Chapter 4 - Screenshot Builder" (section "Revised proposed scope"), the project memory `chapter-4-spec-inputs`, `docs/superpowers/council/` (rubric, inputs, chapter 3 results), and Geoff's six App Store sets.
 Plan: `docs/superpowers/plans/2026-11-14-chapter-4-product-pass.md`.
 

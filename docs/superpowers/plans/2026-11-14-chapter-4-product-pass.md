@@ -349,6 +349,8 @@ Tests alone are not sufficient verification. A milestone is verified only when i
 
 ## Run one council round (M9)
 
+**Dropped by Geoff on 2026-11-14.** He no longer chases a score and wants correctness within reason, so M9 did not run. The M0 calibration stays on record for any later review. The boxes below are kept as written and are not checked.
+
 **Depends on.** M8 and M0.
 
 **Files.**
@@ -384,7 +386,7 @@ Tests alone are not sufficient verification. A milestone is verified only when i
 
 ## Close the program
 
-This is milestone M10.
+This is milestone M10. The batched hands-on checklist for Geoff is in `docs/superpowers/plans/2026-11-14-chapter-4-hands-on.md`.
 
 - [ ] Write one hands-on checklist for Geoff, about 20 minutes long. It covers these steps. Apply each look, undo, edit an eyebrow on the canvas, reorder and watch numbers, toggle Advanced background, hue shift with Span set, a Zoom shot, a portrait Lead shot, save and reopen a version 4 file.
 - [ ] Run the doc ritual on the branch for `TODO.md`, `DECISIONS.md`, `CHANGELOG.md`, `README.md` (knobs, workflow).

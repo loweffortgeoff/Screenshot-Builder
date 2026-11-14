@@ -1,11 +1,12 @@
 # TODO
 
 ## Next
-- Chapter 4 (branch `feature/chapter-4`): milestones M0 to M10 in `docs/superpowers/plans/2026-11-14-chapter-4-product-pass.md`.
+- Chapter 4 hands-on check (Geoff, about 25 minutes): `docs/superpowers/plans/2026-11-14-chapter-4-hands-on.md`. Then Geoff decides the merge of `feature/chapter-4`.
+- Chapter 4 open call (Geoff): the Style tab still scrolls at 1440 × 920 (spec R6.4 not met). Keep it, or move the shot section to its own place.
 - iPad acceptance: not tested by Geoff (2026-11-14, no iPad Pro on hand). iPad output can be checked with iPad Pro simulator captures; Geoff's acceptance stays open.
 
 ## Backlog
-- Film grain on large gradients: both GPT judges named it in the chapter 4 calibration (2026-11-14). Outside the chapter 4 scope; revisit if the M9 review repeats it.
+- Film grain on large gradients: both GPT judges named it in the chapter 4 calibration (2026-11-14). Outside the chapter 4 scope, and M9 was dropped, so it stays here until Geoff asks.
 - Highlight menu: typed markup that spans words (for example `*one tap*`) shows unchecked and cannot be cleared from the menu; a word both typed and stored needs two clicks. Found in code review 2026-11-13; low impact because the menu writes single-word accents.
 - Mac fit advisory: when Auto chooses Window, no advisory names that choice (only an explicit Window does). Kept quiet to avoid a warning on every Mac window set. Found in the chapter 3 review, 2026-11-14.
 - Editor performance: `PreviewPane` composes the shot in its view body, so a Zoom shot costs about 10 ms per keystroke or drag step (measured 2026-11-14). Cache the layout with the render if typing ever feels slow.
@@ -13,6 +14,7 @@
 - Outside v1: freeform editing, layers, stickers, AI copy, localization management, and direct upload. These do not serve the initial fixed-layout workflow.
 
 ## Done
+- 2026-11-14 — Chapter 4 implemented on `feature/chapter-4` (M0 to M8, M10): judge calibration (Sol), Lead, decorations and format 5, backdrops and hue shift, six starter looks, editor polish, Zoom card tint and crop fix; M7 found no frame defects. Code review by code-reviewer and Fable; confirmed bugs fixed in separate commits. M9 (council review) dropped by Geoff.
 - 2026-11-14 — Chapter 4 spec and plan approved by Geoff (Q1 B, Q2 keep 1.6×, defaults for Q3 to Q7).
 - 2026-11-14 — Chapter 3 hands-on acceptance passed (Geoff). The Set view drag and the Zoom ring fixes are in `fc34097` and `79a6186`. Pinch zoom is not scripted.
 - 2026-11-14 — Chapter 3 merged to `main` at `79a6186`. Chapter 4 replaces the score target with a product success sentence (Sol review).
