@@ -45,7 +45,7 @@ struct Theme: Identifiable, Equatable {
         make("Sunset", .linear, [0xFF5F6D, 0xFFC371], text: 0xFFFFFF, accent: 0x3D1A5B),
         make("Ocean", .mesh, [0x1A2A6C, 0x2E86DE, 0x48DBFB], text: 0xFFFFFF, accent: 0xFFE66D),
         make("Midnight", .mesh, [0x0F2027, 0x203A43, 0x2C5364], text: 0xFFFFFF, accent: 0x5EEAD4),
-        make("Grape", .mesh, [0x4A00E0, 0x8E2DE2, 0xFF6FD8], text: 0xFFFFFF, accent: 0xFFD166),
+        make("Grape", .mesh, [0x3A0CA3, 0x7B2CBF, 0xC77DFF], text: 0xFFFFFF, accent: 0xFFE066),
         make("Aurora", .mesh, [0x0B3D3A, 0x00C9A7, 0x845EC2], text: 0xFFFFFF, accent: 0xFFF3B0),
         make("Graphite", .radial, [0x3A3A3C, 0x111113], text: 0xFFFFFF, accent: 0xFF9F0A),
         make("Noir", .solid, [0x0B0B0F], text: 0xFFFFFF, accent: 0xA3E635),

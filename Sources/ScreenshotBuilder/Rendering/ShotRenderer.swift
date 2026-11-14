@@ -48,7 +48,7 @@ enum ShotRenderer {
             headSize = unit * 0.082 * style.textSize.scale
             subSize = unit * 0.040 * style.textSize.scale
             gap = unit * 0.022 * style.textSize.scale
-            separation = unit * 0.055
+            separation = unit * 0.038
             // Room for two headline lines and two subtitle lines.
             let head = CaptionFont.lineHeight(style.font.font(size: headSize, weight: style.weight.nsWeight)) * 0.96
             let sub = CaptionFont.lineHeight(style.font.font(size: subSize, weight: .medium)) * 1.08
@@ -98,13 +98,13 @@ enum ShotRenderer {
         func place(_ aspect: CGSize) -> CGRect {
             guard style.layout == .bleedBottom || style.layout == .bleedTop else { return Self.fit(aspect, in: available) }
             // Bleed: a device wider than the normal fit, pinned below the caption, so it runs off the far edge.
-            var width = size.width * 0.88 * style.imageScale
+            var width = size.width * 0.96 * style.imageScale
             var height = width * aspect.height / aspect.width
             if height > available.height * 1.3 {
                 height = available.height * 1.3
                 width = height * aspect.width / aspect.height
             }
-            let inset = available.height * 0.015
+            let inset = available.height * 0.03
             let y = style.layout == .bleedBottom ? available.minY + inset : available.maxY - inset - height
             return CGRect(x: available.midX - width / 2, y: y, width: width, height: height)
         }
@@ -128,9 +128,9 @@ enum ShotRenderer {
             rect = place(sourceSize)
         }
         let fit = rect.width / sourceSize.width
-        // Captions sit at the top of the band, so headlines line up across the set.
+        // The band is shared across the set, so screenshots line up; each caption centers in it.
         let captionTop = style.layout.captionOnTop ? top : size.height - margin * 1.6 - captionHeight
-        let textY = captionTop
+        let textY = captionTop + max(0, (captionHeight - needed) / 2)
         let textWidth = metrics.textWidth
         var warnings: [String] = []
         if hasCaption && needed > metrics.maxBand + 0.5 { warnings.append("Caption is too long. Shorten the headline or subtitle before export.") }

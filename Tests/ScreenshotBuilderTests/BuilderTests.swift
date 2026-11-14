@@ -283,7 +283,10 @@ struct BuilderTests {
         let a = ShotRenderer.compose(shot: short, style: style, sourceSize: source, captionBand: band)
         let b = ShotRenderer.compose(shot: long, style: style, sourceSize: source, captionBand: band)
         #expect(a.imageRect == b.imageRect)
-        #expect(a.headlineRect.minY == b.headlineRect.minY)
+        // Each caption block centers in the shared band.
+        let blockA = a.headlineRect.union(a.subtitleRect.height > 0 ? a.subtitleRect : a.headlineRect)
+        let blockB = b.headlineRect.union(b.subtitleRect)
+        #expect(abs(blockA.midY - blockB.midY) < 1)
         #expect(b.subtitleRect.maxY <= b.imageRect.minY)
     }
 
