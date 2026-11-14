@@ -668,6 +668,20 @@ struct BuilderTests {
         #expect(try #require(centers[.middle]) < (try #require(centers[.bottom])))
     }
 
+    @Test func draggedCalloutRectKeepsTheMinimumHeightAndCutsInGaps() throws {
+        let (shot, blocks) = try stripedShot()
+        let row: CGFloat = 1.0 / 1024
+        func inGap(_ edge: CGFloat) -> Bool {
+            !blocks.contains { edge > $0.lowerBound + row && edge < $0.upperBound - row }
+        }
+        // A ring dropped as a thin sliver on each block: it must grow to the floor and still cut between rows.
+        for block in blocks {
+            let snapped = shot.snappedCalloutRect(CGRect(x: 0.1, y: block.lowerBound, width: 0.8, height: 0.02))
+            #expect(snapped.height >= Shot.minCalloutHeight - 0.001 || snapped.maxY >= 0.999, "\(block) \(snapped)")
+            #expect(inGap(snapped.minY) && (inGap(snapped.maxY) || snapped.maxY >= 0.999), "\(block) \(snapped)")
+        }
+    }
+
     @Test func calloutMagnificationBounds() throws {
         var shot = try fixture()
         shot.arrangement = .callout

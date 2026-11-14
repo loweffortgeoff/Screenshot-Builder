@@ -184,7 +184,18 @@ extension Shot {
             return value - up <= down - value ? up : down
         }
         var top = gapEdge(near: rect.minY), bottom = gapEdge(near: rect.maxY)
-        if bottom - top < 0.06 { bottom = min(1, top + 0.06) }
+        // The same 10% floor as the automatic crop, so a dragged ring never shrinks to one sparse row.
+        // Grow down to the first gap at or below the floor, so the new edge still falls between rows.
+        let floor = Shot.minCalloutHeight
+        if bottom - top < floor {
+            let target = top + floor
+            if let inside = blocks.first(where: { $0.top < target && target < $0.bottom }) {
+                let below = blocks.first { $0.top >= inside.bottom }
+                bottom = min(1, below.map { (inside.bottom + $0.top) / 2 } ?? inside.bottom + 0.005)
+            } else {
+                bottom = min(1, target)
+            }
+        }
         if bottom - top > 0.30 { bottom = top + 0.30 }
         top = min(max(0, top), 1 - (bottom - top))
         return CGRect(x: x, y: top, width: width, height: min(bottom, 1) - top)
@@ -257,11 +268,14 @@ extension Shot {
         return blocks
     }
 
+    /// The shortest Zoom crop, as a fraction of the capture height, for automatic and dragged regions alike.
+    static let minCalloutHeight: CGFloat = 0.10
+
     /// Chooses whole consecutive blocks 0.10...`maxHeight` tall, nearest `target`, and cuts in the gaps beside them.
     /// With no fit, takes the block nearest `target`, trimmed at its quietest rows when it is too tall.
     static func cropBand(blocks: [ContentBlock], profile: [Float], target: CGFloat,
                          maxHeight requested: CGFloat) -> (top: CGFloat, bottom: CGFloat) {
-        let minHeight: CGFloat = 0.10, maxHeight = max(requested, minHeight), margin: CGFloat = 0.015
+        let minHeight = minCalloutHeight, maxHeight = max(requested, minHeight), margin: CGFloat = 0.015
         func lowLimit(_ i: Int) -> CGFloat { i == 0 ? 0 : (blocks[i - 1].bottom + blocks[i].top) / 2 }
         func highLimit(_ i: Int) -> CGFloat { i == blocks.count - 1 ? 1 : (blocks[i].bottom + blocks[i + 1].top) / 2 }
         func edges(_ i: Int, _ j: Int) -> (top: CGFloat, bottom: CGFloat) {
