@@ -241,18 +241,24 @@ enum ShotRenderer {
             // Lean the device's top toward the canvas center.
             layers = [layer(in: r, capture: sourceSize, rotation: (arrangement == .heroRight ? -4 : 4) * degrees)]
         case .duo:
-            let back = scaled(base, 0.74, dx: -base.width * 0.2, dy: -base.height * 0.04)
-            let front = scaled(base, 0.8, dx: base.width * 0.18, dy: base.height * 0.06)
+            let back = scaled(base, 0.7, dx: -base.width * 0.19, dy: -base.height * 0.04)
+            let front = scaled(base, 0.76, dx: base.width * 0.17, dy: base.height * 0.06)
             layers = [layer(in: back, capture: companionSize, rotation: 7 * degrees, companion: true),
                       layer(in: front, capture: sourceSize, rotation: -3 * degrees)]
         case .callout:
-            let device = layer(in: scaled(base, 0.94, dx: -base.width * 0.17), capture: sourceSize)
+            var deviceBox = scaled(base, 0.92, dx: -base.width * 0.14)
+            // Keep the whole device inside a safe margin; the card may overlap it, the canvas edge may not.
+            deviceBox.origin.x = max(deviceBox.minX, margin * 0.8)
+            let device = layer(in: deviceBox, capture: sourceSize)
             layers = [device]
             // Magnify a band of the capture about 1.6x, on a card that overlaps the device's right edge.
             // Whole rows read better than a cropped middle, so the band spans nearly the full capture width.
             // Full-width rows read cleanly. Only wide captures narrow the band, so the card is never thinner than 3.2:1.
             let cropWidth = min(1, 0.16 * sourceSize.height * 3.2 / sourceSize.width)
-            let crop = CGRect(x: (1 - cropWidth) / 2, y: min(max(shot.calloutCenter - 0.08, 0), 0.84), width: cropWidth, height: 0.16)
+            // Snap the band to quiet rows so the card never slices a line of text.
+            let rawTop = min(max(shot.calloutCenter - 0.08, 0.04), 0.8)
+            let band = shot.snappedBand(top: rawTop, bottom: rawTop + 0.16)
+            let crop = CGRect(x: (1 - cropWidth) / 2, y: band.top, width: cropWidth, height: band.bottom - band.top)
             let screen = device.imageRect
             let highlight = CGRect(x: screen.minX + crop.minX * screen.width, y: screen.minY + crop.minY * screen.height,
                                    width: crop.width * screen.width, height: crop.height * screen.height)
@@ -262,7 +268,7 @@ enum ShotRenderer {
             let gap = cardHeight * 0.18
             var cardY = shot.calloutCenter < 0.5 ? highlight.maxY + gap : highlight.minY - gap - cardHeight
             cardY = min(max(cardY, available.minY), available.maxY - cardHeight)
-            let cardX = min(screen.maxX - cardWidth * 0.4, size.width - margin * 0.6 - cardWidth)
+            let cardX = min(screen.maxX - cardWidth * 0.4, size.width - margin * 1.1 - cardWidth)
             callout = Callout(rect: CGRect(x: cardX, y: cardY, width: cardWidth, height: cardHeight), source: crop,
                               cornerRadius: cardWidth * 0.045, highlight: highlight)
         }
@@ -282,7 +288,7 @@ enum ShotRenderer {
         // Keep tilted and Duo devices on the canvas horizontally (Hero places itself).
         if [.tiltLeft, .tiltRight, .duo].contains(arrangement),
            let bounds = layers.map(\.bounds).reduce(nil, { (acc: CGRect?, r) in acc.map { $0.union(r) } ?? r }) {
-            let edge = margin * 0.3
+            let edge = margin * 0.8
             var dx: CGFloat = 0
             if bounds.width <= size.width - edge * 2 {
                 if bounds.minX < edge { dx = edge - bounds.minX } else if bounds.maxX > size.width - edge { dx = size.width - edge - bounds.maxX }
@@ -484,9 +490,10 @@ enum ShotRenderer {
             let below = callout.rect.minY > ring.maxY
             let from = CGPoint(x: min(ring.maxX - border * 3, callout.rect.minX + callout.rect.width * 0.25), y: below ? ring.maxY : ring.minY)
             let to = CGPoint(x: from.x, y: below ? callout.rect.minY - border : callout.rect.maxY + border)
-            cg.setLineWidth(border * 0.5)
-            cg.setLineDash(phase: 0, lengths: [border * 1.6, border * 1.1])
+            cg.setLineWidth(border * 0.7)
+            cg.setLineCap(.round)
             cg.move(to: from); cg.addLine(to: to); cg.strokePath()
+            cg.fillEllipse(in: CGRect(x: from.x - border * 1.1, y: from.y - border * 1.1, width: border * 2.2, height: border * 2.2))
             cg.restoreGState()
         }
         let outer = callout.rect.insetBy(dx: -border, dy: -border)

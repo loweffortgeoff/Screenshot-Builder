@@ -107,6 +107,45 @@ extension Shot {
         return center
     }
 
+    nonisolated(unsafe) private static let rowProfiles = NSCache<NSData, NSData>()
+
+    /// Per-row luminance spread of the capture at 256 rows (row 0 at the top). Quiet rows are gaps between UI rows.
+    private var rowProfile: [Float] {
+        let key = imageData as NSData
+        if let hit = Shot.rowProfiles.object(forKey: key) {
+            return (hit as Data).withUnsafeBytes { Array($0.bindMemory(to: Float.self)) }
+        }
+        guard let image = cgImage else { return [] }
+        let w = 64, h = 256
+        var pixels = [UInt8](repeating: 0, count: w * h)
+        guard let context = CGContext(data: &pixels, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w,
+                                      space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue) else { return [] }
+        context.interpolationQuality = .medium
+        context.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+        let profile: [Float] = (0..<h).map { y in
+            let row = (0..<w).map { Float(pixels[y * w + $0]) }
+            let mean = row.reduce(0, +) / Float(w)
+            return row.reduce(0) { $0 + abs($1 - mean) } / Float(w)
+        }
+        Shot.rowProfiles.setObject(profile.withUnsafeBufferPointer { Data(buffer: $0) } as NSData, forKey: key)
+        return profile
+    }
+
+    /// Moves a band's edges (unit coordinates) to the quietest nearby rows, so a crop does not slice a row of text.
+    func snappedBand(top: CGFloat, bottom: CGFloat, reach: CGFloat = 0.035) -> (top: CGFloat, bottom: CGFloat) {
+        let profile = rowProfile
+        guard profile.count > 1 else { return (top, bottom) }
+        let n = CGFloat(profile.count)
+        func quietest(near value: CGFloat) -> CGFloat {
+            let low = max(0, Int((value - reach) * n)), high = min(profile.count - 1, Int((value + reach) * n))
+            guard low < high else { return value }
+            let best = (low...high).min { profile[$0] < profile[$1] } ?? Int(value * n)
+            return CGFloat(best) / n
+        }
+        let snappedTop = quietest(near: top), snappedBottom = quietest(near: bottom)
+        return snappedBottom - snappedTop > (bottom - top) * 0.6 ? (snappedTop, snappedBottom) : (top, bottom)
+    }
+
     /// Picks the band with the most luminance variation, skipping the status bar and the bottom bar.
     private func detailBandCenter() -> CGFloat {
         guard let image = cgImage else { return 0.5 }
