@@ -3,11 +3,11 @@ import AppKit
 @testable import ScreenshotBuilder
 
 /// Review harness. Renders real captures to PNGs and a `.shotset` project for visual review.
-/// Runs only when SB_SAMPLES (folder of 01.png…05.png) and SB_OUT are set.
+/// Runs only when SB_OUT is set with SB_SAMPLES (folder of 01.png…05.png) or SB_PROJECT (a `.shotset` rendered as saved).
 @MainActor
 struct SampleRenderTests {
-    nonisolated static let enabled = ProcessInfo.processInfo.environment["SB_SAMPLES"] != nil
-        && ProcessInfo.processInfo.environment["SB_OUT"] != nil
+    nonisolated static let enabled = ProcessInfo.processInfo.environment["SB_OUT"] != nil
+        && (ProcessInfo.processInfo.environment["SB_SAMPLES"] != nil || ProcessInfo.processInfo.environment["SB_PROJECT"] != nil)
 
     static let captions: [(String, String)] = [
         ("Your list, *sorted* by aisle", "Budget and progress at a glance"),
@@ -19,43 +19,52 @@ struct SampleRenderTests {
 
     @Test(.enabled(if: enabled)) func renderSampleSet() throws {
         let env = ProcessInfo.processInfo.environment
-        let samples = URL(fileURLWithPath: env["SB_SAMPLES"]!)
         let out = URL(fileURLWithPath: env["SB_OUT"]!)
         try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
         var document = ShotDocument()
-        // Optional review knobs: SB_THEME=<theme name>, SB_SPAN=1.
-        if let name = env["SB_THEME"], let theme = Theme.all.first(where: { $0.name == name }) { document.style.apply(theme) }
-        document.style.spanSet = env["SB_SPAN"] == "1"
-        // More knobs: SB_PRESET=<OutputPreset raw value>, SB_FINISH, SB_LANDSCAPE=1, SB_FRAME=<FrameStyle raw value>.
-        if let raw = env["SB_PRESET"], let preset = OutputPreset(rawValue: raw) { document.style.preset = preset }
-        if let finish = env["SB_FINISH"] { document.style.finish = finish }
-        document.style.landscape = env["SB_LANDSCAPE"] == "1"
-        if let raw = env["SB_FRAME"], let frame = FrameStyle(rawValue: raw) { document.style.frameStyle = frame }
-        // SB_CAPTIONS: a file of "headline|subtitle" lines, one per capture, overrides the built-in captions.
-        let captions: [(String, String)] = env["SB_CAPTIONS"].flatMap { try? String(contentsOfFile: $0, encoding: .utf8) }
-            .map { $0.split(separator: "\n").map { line in
-                let parts = line.split(separator: "|", maxSplits: 2).map(String.init)
-                return (parts.first ?? "", parts.count > 1 ? parts[1] : "")
-            } } ?? Self.captions
-        // Optional badges: SB_BADGES="1:New,3:Insights" (1-based shot numbers).
-        let badges = Dictionary(uniqueKeysWithValues: (env["SB_BADGES"] ?? "").split(separator: ",").compactMap { item -> (Int, String)? in
-            let parts = item.split(separator: ":", maxSplits: 1)
-            guard parts.count == 2, let n = Int(parts[0]) else { return nil }
-            return (n - 1, String(parts[1]))
-        })
-        for (index, caption) in captions.enumerated() {
-            let url = samples.appendingPathComponent(String(format: "%02d.png", index + 1))
-            guard FileManager.default.fileExists(atPath: url.path) else { continue }
-            var shot = try Shot.importing(url)
-            // Stored accent words, as the Highlight menu sets them.
-            let parts = caption.0.components(separatedBy: "*")
-            shot.headline = parts.joined()
-            shot.accents = parts.enumerated().filter { $0.offset % 2 == 1 }.flatMap { $0.element.split(separator: " ").map(String.init) }
-            shot.subtitle = caption.1
-            shot.badge = badges[index] ?? ""
-            document.shots.append(shot)
+        if let project = env["SB_PROJECT"] {
+            document = try ShotDocument.decode(Data(contentsOf: URL(fileURLWithPath: project)))
+        } else {
+            let samples = URL(fileURLWithPath: env["SB_SAMPLES"]!)
+            // Optional review knobs: SB_THEME=<theme name>, SB_SPAN=1.
+            if let name = env["SB_THEME"], let theme = Theme.all.first(where: { $0.name == name }) { document.style.apply(theme) }
+            document.style.spanSet = env["SB_SPAN"] == "1"
+            // More knobs: SB_PRESET=<OutputPreset raw value>, SB_FINISH, SB_LANDSCAPE=1, SB_FRAME=<FrameStyle raw value>.
+            if let raw = env["SB_PRESET"], let preset = OutputPreset(rawValue: raw) { document.style.preset = preset }
+            if let finish = env["SB_FINISH"] { document.style.finish = finish }
+            document.style.landscape = env["SB_LANDSCAPE"] == "1"
+            if let raw = env["SB_FRAME"], let frame = FrameStyle(rawValue: raw) { document.style.frameStyle = frame }
+            // SB_CAPTIONS: a file of "headline|subtitle" lines, one per capture, overrides the built-in captions.
+            let captions: [(String, String)] = env["SB_CAPTIONS"].flatMap { try? String(contentsOfFile: $0, encoding: .utf8) }
+                .map { $0.split(separator: "\n").map { line in
+                    let parts = line.split(separator: "|", maxSplits: 2).map(String.init)
+                    return (parts.first ?? "", parts.count > 1 ? parts[1] : "")
+                } } ?? Self.captions
+            // Optional badges: SB_BADGES="1:New,3:Insights" (1-based shot numbers).
+            let badges = Dictionary(uniqueKeysWithValues: (env["SB_BADGES"] ?? "").split(separator: ",").compactMap { item -> (Int, String)? in
+                let parts = item.split(separator: ":", maxSplits: 1)
+                guard parts.count == 2, let n = Int(parts[0]) else { return nil }
+                return (n - 1, String(parts[1]))
+            })
+            for (index, caption) in captions.enumerated() {
+                let url = samples.appendingPathComponent(String(format: "%02d.png", index + 1))
+                guard FileManager.default.fileExists(atPath: url.path) else { continue }
+                var shot = try Shot.importing(url)
+                // Stored accent words, as the Highlight menu sets them.
+                let parts = caption.0.components(separatedBy: "*")
+                shot.headline = parts.joined()
+                shot.accents = parts.enumerated().filter { $0.offset % 2 == 1 }.flatMap { $0.element.split(separator: " ").map(String.init) }
+                shot.subtitle = caption.1
+                shot.badge = badges[index] ?? ""
+                document.shots.append(shot)
+            }
         }
         try #require(!document.shots.isEmpty)
+        for index in document.shots.indices {
+            if let raw = env["SB_REGION"], let value = CalloutRegion(rawValue: raw) { document.shots[index].calloutRegion = value }
+            if let raw = env["SB_MARKER"], let value = CalloutMarker(rawValue: raw) { document.shots[index].calloutMarker = value }
+            if let raw = env["SB_LENS"], let value = LensStyle(rawValue: raw) { document.shots[index].lensStyle = value }
+        }
         if let raw = env["SB_LAYOUT"], let value = CaptionLayout(rawValue: raw) { document.style.layout = value }
         if let raw = env["SB_ALIGN"], let value = CaptionAlignment(rawValue: raw) { document.style.alignment = value }
         if let raw = env["SB_FONT"], let value = CaptionFont(rawValue: raw) { document.style.font = value }

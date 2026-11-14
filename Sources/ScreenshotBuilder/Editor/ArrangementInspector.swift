@@ -28,6 +28,18 @@ struct ArrangementInspector: View {
                     }
                     .pickerStyle(.segmented).labelsHidden().frame(maxWidth: 220)
                 }
+                LabeledContent("Marker") {
+                    Picker("Marker", selection: $shot.calloutMarker) {
+                        ForEach(CalloutMarker.allCases) { Text($0.rawValue).tag($0) }
+                    }
+                    .pickerStyle(.segmented).labelsHidden().frame(maxWidth: 220)
+                }
+                LabeledContent("Connector") {
+                    Picker("Connector", selection: $shot.lensStyle) {
+                        ForEach(LensStyle.allCases) { Text($0.rawValue).tag($0) }
+                    }
+                    .pickerStyle(.segmented).labelsHidden().frame(maxWidth: 220)
+                }
             }
         } header: {
             Text("Shot \(position) arrangement")

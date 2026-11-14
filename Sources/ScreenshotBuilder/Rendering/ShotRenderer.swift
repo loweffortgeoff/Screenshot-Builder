@@ -61,6 +61,24 @@ enum ShotRenderer {
         var cornerRadius: CGFloat
         /// Where that part sits on the device screen, ringed so the card reads as a zoom of it.
         var highlight: CGRect = .zero
+        var marker: CalloutMarker = .spotlight
+        var lens: LensStyle = .lens
+    }
+
+    /// Card border width for a canvas, the one white border in a Zoom shot.
+    static func cardBorder(unit: CGFloat) -> CGFloat { unit * 0.0034 }
+    /// The source marker's accent stroke stays well under half the card border, so it never reads as a second card.
+    static func markerStrokeWidth(cardBorder: CGFloat) -> CGFloat { cardBorder * 0.35 }
+
+    /// The lens polygon, in order: the ring's two corners nearest the card, then the card's two corners facing the ring
+    /// (right one first, so edges do not cross). Left corners pair with left corners.
+    static func lensQuad(ring: CGRect, card: CGRect) -> [CGPoint] {
+        if card.midY >= ring.midY {
+            return [CGPoint(x: ring.minX, y: ring.maxY), CGPoint(x: ring.maxX, y: ring.maxY),
+                    CGPoint(x: card.maxX, y: card.minY), CGPoint(x: card.minX, y: card.minY)]
+        }
+        return [CGPoint(x: ring.minX, y: ring.minY), CGPoint(x: ring.maxX, y: ring.minY),
+                CGPoint(x: card.maxX, y: card.maxY), CGPoint(x: card.minX, y: card.maxY)]
     }
 
     /// Largest rect with `aspect`'s proportions that fits in `box`, centered.
@@ -230,6 +248,28 @@ enum ShotRenderer {
         func scaled(_ r: CGRect, _ k: CGFloat, dx: CGFloat = 0, dy: CGFloat = 0) -> CGRect {
             CGRect(x: r.midX - r.width * k / 2 + dx, y: r.midY - r.height * k / 2 + dy, width: r.width * k, height: r.height * k)
         }
+        // The band is shared across the set and captions start at its top, so headlines share a line.
+        let captionTop = style.layout.captionOnTop ? top : size.height - margin * 1.6 - captionHeight
+        let badgeY = style.layout.captionOnTop ? captionTop : captionTop + max(0, captionHeight - needed - badgeExtra)
+        let textY = badgeY + badgeExtra
+        let textWidth = metrics.textWidth
+        func textRect(width: CGFloat, y: CGFloat, height: CGFloat) -> CGRect {
+            let x = style.alignment == .center ? (size.width - width) / 2 : (size.width - textWidth) / 2
+            return CGRect(x: x, y: y, width: width, height: height)
+        }
+        let gap = caption.head > 0 && caption.sub > 0 ? metrics.gap : 0
+        let headlineRect = textRect(width: caption.headWidth, y: textY, height: caption.head)
+        let subtitleRect = textRect(width: caption.subWidth, y: textY + caption.head + gap, height: caption.sub)
+        var badge: NSAttributedString?
+        var badgeRect = CGRect.zero
+        if hasCaption && !badgeText.isEmpty {
+            let text = Self.badgeText(badgeText.uppercased(), style: style, size: metrics.subSize * 0.62)
+            let pillHeight = metrics.subSize * 1.5
+            let pillWidth = ceil(text.size().width) + pillHeight * 1.1
+            let x = style.alignment == .center ? (size.width - pillWidth) / 2 : (size.width - textWidth) / 2
+            badge = text
+            badgeRect = CGRect(x: x, y: badgeY, width: pillWidth, height: pillHeight)
+        }
         let degrees = CGFloat.pi / 180
         var layers: [Layer] = []
         var callout: Callout?
@@ -263,36 +303,87 @@ enum ShotRenderer {
             layers = [layer(in: back, capture: companionSize, rotation: 7 * degrees, companion: true),
                       layer(in: front, capture: sourceSize, rotation: -3 * degrees)]
         case .callout:
-            var deviceBox = scaled(base, 0.92, dx: -base.width * 0.14)
-            // Keep the whole device inside a safe margin; the card may overlap it, the canvas edge may not.
-            deviceBox.origin.x = max(deviceBox.minX, margin * 0.8)
-            let device = layer(in: deviceBox, capture: sourceSize)
-            layers = [device]
-            // Magnify a band of the capture about 1.6x, on a card that overlaps the device's right edge.
-            // Whole rows read better than a cropped middle, so the band spans nearly the full capture width.
-            // Full-width rows read cleanly. Only wide captures narrow the band, so the card is never thinner than 3.2:1.
-            let cropWidth = min(1, 0.16 * sourceSize.height * 3.2 / sourceSize.width)
-            // Snap the band to quiet rows so the card never slices a line of text.
-            let rawTop = min(max(shot.calloutCenter - 0.08, 0.04), 0.8)
-            let band = shot.snappedBand(top: rawTop, bottom: rawTop + 0.16)
-            // Narrow bands anchor to the leading edge, where app rows start, so labels stay whole.
-            let crop = CGRect(x: cropWidth < 1 ? 0.02 : 0, y: band.top, width: cropWidth < 1 ? cropWidth : 1, height: band.bottom - band.top)
-            let screen = device.imageRect
-            let highlight = CGRect(x: screen.minX + crop.minX * screen.width, y: screen.minY + crop.minY * screen.height,
-                                   width: crop.width * screen.width, height: crop.height * screen.height)
-            let cardWidth = min(size.width * 0.74, screen.width * crop.width * 1.4)
-            let cardHeight = cardWidth * (crop.height * sourceSize.height) / (crop.width * sourceSize.width)
-            // The card sits beside its source, not on it, on whichever side has more room.
-            let gap = cardHeight * 0.18
-            let roomBelow = available.maxY - highlight.maxY, roomAbove = highlight.minY - available.minY
-            var cardY = roomBelow >= roomAbove ? highlight.maxY + gap : highlight.minY - gap - cardHeight
-            cardY = min(max(cardY, available.minY), available.maxY - cardHeight)
-            let cardX = min(screen.maxX - cardWidth * 0.4, size.width - margin * 1.1 - cardWidth)
-            callout = Callout(rect: CGRect(x: cardX, y: cardY, width: cardWidth, height: cardHeight), source: crop,
-                              cornerRadius: cardWidth * 0.045, highlight: highlight)
+            // Zoom 1.8x when room allows, never below the floor. The card may span the safe width; a wider card
+            // crops a narrower band instead of lowering the zoom. Safe area and caption rects bound where it sits.
+            let unit = min(size.width, size.height)
+            let safe = CGRect(origin: .zero, size: size).insetBy(dx: margin, dy: margin)
+            let pad = unit * 0.012
+            let obstacles = (hasCaption ? [headlineRect, subtitleRect, badgeRect] : [])
+                .filter { $0.width > 0 && $0.height > 0 }.map { $0.insetBy(dx: -pad, dy: -pad) }
+            let floorZoom: CGFloat = spec.family == .laptop ? 1.5 : 1.6
+            func plan(scale: CGFloat, zoom: CGFloat, maxHeight: CGFloat, allowNarrow: Bool = true)
+                -> (device: Layer, crop: CGRect, highlight: CGRect, card: CGRect, fits: Bool) {
+                var box = scaled(base, scale, dx: -base.width * 0.14)
+                box.origin.x = max(box.minX, margin * 0.8)
+                // Settle the device clear of the caption first, so the card is placed against its final position.
+                // A shrunken device hugs the caption instead of leaving a gap under it.
+                if hasCaption {
+                    let inset = available.height * 0.03
+                    box.origin.y = style.layout.captionOnTop ? max(available.minY, min(box.minY, available.minY + inset))
+                                                             : min(available.maxY - box.height, max(box.minY, available.maxY - inset - box.height))
+                }
+                let device = layer(in: box, capture: sourceSize)
+                let screen = device.imageRect
+                let band = shot.calloutBand(maxHeight: maxHeight)
+                let fitted = safe.width / (zoom * screen.width)
+                let narrow = fitted < 1
+                if narrow && !allowNarrow { return (device, .zero, .zero, .zero, false) }
+                let cropX: CGFloat = narrow ? 0.02 : 0
+                let cropRight = narrow ? shot.calloutRightEdge(top: band.top, bottom: band.bottom, limit: min(cropX + fitted, 1)) : 1
+                let crop = CGRect(x: cropX, y: band.top, width: cropRight - cropX, height: band.bottom - band.top)
+                let highlight = CGRect(x: screen.minX + crop.minX * screen.width, y: screen.minY + crop.minY * screen.height,
+                                       width: crop.width * screen.width, height: crop.height * screen.height)
+                let cardWidth = zoom * highlight.width
+                let cardHeight = cardWidth * (crop.height * sourceSize.height) / (crop.width * sourceSize.width)
+                var cardX = min(screen.maxX - cardWidth * 0.4, safe.maxX - cardWidth)
+                cardX = max(cardX, safe.minX)
+                // Beside the source, on the side with more room; a closer gap before overlapping the ring by a sliver.
+                let below = safe.maxY - highlight.maxY >= highlight.minY - safe.minY
+                for side in [below, !below] {
+                    for gap in [cardHeight * 0.22, cardHeight * 0.12, cardHeight * 0.05, -highlight.height * 0.08] {
+                        let y = side ? highlight.maxY + gap : highlight.minY - gap - cardHeight
+                        let card = CGRect(x: cardX, y: y, width: cardWidth, height: cardHeight)
+                        if safe.contains(card), !obstacles.contains(where: { $0.intersects(card) }) {
+                            return (device, crop, highlight, card, true)
+                        }
+                    }
+                }
+                let y = min(max(below ? highlight.maxY + cardHeight * 0.22 : highlight.minY - cardHeight * 1.22, safe.minY), safe.maxY - cardHeight)
+                return (device, crop, highlight, CGRect(x: cardX, y: y, width: cardWidth, height: cardHeight), false)
+            }
+            let zooms = [1.8, (1.8 + floorZoom) / 2, floorZoom]
+            var chosen: (device: Layer, crop: CGRect, highlight: CGRect, card: CGRect, fits: Bool)?
+            // Whole rows read as UI; a narrowed band shows labels without their values. Shrink the device to keep
+            // full rows, and narrow the band only when no device size fits (wide captures).
+            let passes: [([CGFloat], Bool)] = [([0.92, 0.84, 0.76, 0.70, 0.66, 0.62, 0.58], false), ([0.92, 0.84, 0.76, 0.68], true)]
+            search: for (scales, allowNarrow) in passes {
+                for scale in scales {
+                    for zoom in zooms {
+                        for maxHeight in [0.24, 0.20, 0.16, 0.13, 0.10] {
+                            let candidate = plan(scale: scale, zoom: zoom, maxHeight: maxHeight, allowNarrow: allowNarrow)
+                            if candidate.fits { chosen = candidate; break search }
+                        }
+                    }
+                }
+            }
+            var final = chosen ?? plan(scale: 0.92, zoom: zooms[0], maxHeight: 0.24)
+            // Center device and card together, moving only away from the caption, so slack does not pool on one side.
+            if hasCaption, chosen != nil {
+                let group = final.device.frame.union(final.card)
+                var dy = available.midY - group.midY
+                dy = style.layout.captionOnTop ? max(0, min(dy, available.maxY - group.maxY)) : min(0, max(dy, available.minY - group.minY))
+                if dy != 0 {
+                    final.device = layer(in: final.device.frame.offsetBy(dx: 0, dy: dy), capture: sourceSize)
+                    final.card.origin.y += dy
+                    final.highlight.origin.y += dy
+                }
+            }
+            layers = [final.device]
+            callout = Callout(rect: final.card, source: final.crop, cornerRadius: final.card.width * 0.045,
+                              highlight: final.highlight, marker: shot.calloutMarker, lens: shot.lensStyle)
         }
         // Keep rotated or enlarged devices clear of the caption: shift the group away from the caption side.
-        if hasCaption, let bounds = layers.map(\.bounds).reduce(nil, { (acc: CGRect?, r) in acc.map { $0.union(r) } ?? r }) {
+        if hasCaption, arrangement != .callout, let bounds = layers.map(\.bounds).reduce(nil, { (acc: CGRect?, r) in acc.map { $0.union(r) } ?? r }) {
             let shift = style.layout.captionOnTop ? max(0, available.minY - bounds.minY) : -max(0, bounds.maxY - available.maxY)
             if shift != 0 {
                 layers = layers.map { l in
@@ -301,8 +392,6 @@ enum ShotRenderer {
                     if l.device == nil { moved.frame = l.frame.offsetBy(dx: 0, dy: shift) }
                     return moved
                 }
-                callout?.rect.origin.y += shift
-                callout?.highlight.origin.y += shift
             }
         }
         // Keep tilted and Duo devices on the canvas horizontally (Hero places itself).
@@ -327,11 +416,6 @@ enum ShotRenderer {
         let rect = layers.last?.imageRect ?? base
         let device = layers.last?.device
         let fit = rect.width / sourceSize.width
-        // The band is shared across the set and captions start at its top, so headlines share a line.
-        let captionTop = style.layout.captionOnTop ? top : size.height - margin * 1.6 - captionHeight
-        let badgeY = style.layout.captionOnTop ? captionTop : captionTop + max(0, captionHeight - needed - badgeExtra)
-        let textY = badgeY + badgeExtra
-        let textWidth = metrics.textWidth
         var warnings: [String] = []
         if hasCaption && needed > metrics.maxBand + 0.5 { warnings.append("Caption is too long. Shorten the headline or subtitle before export.") }
         if hasCaption && [headline, subtitle].contains(where: { text in
@@ -348,24 +432,8 @@ enum ShotRenderer {
                 advisories.append("This capture is shaped for a different device, so it shows black bars in the \(device.spec.name) frame. Use a matching capture, or the Rounded frame.")
             }
         }
-        func textRect(width: CGFloat, y: CGFloat, height: CGFloat) -> CGRect {
-            let x = style.alignment == .center ? (size.width - width) / 2 : (size.width - textWidth) / 2
-            return CGRect(x: x, y: y, width: width, height: height)
-        }
-        let gap = caption.head > 0 && caption.sub > 0 ? metrics.gap : 0
-        var badge: NSAttributedString?
-        var badgeRect = CGRect.zero
-        if hasCaption && !badgeText.isEmpty {
-            let text = Self.badgeText(badgeText.uppercased(), style: style, size: metrics.subSize * 0.62)
-            let pillHeight = metrics.subSize * 1.5
-            let pillWidth = ceil(text.size().width) + pillHeight * 1.1
-            let x = style.alignment == .center ? (size.width - pillWidth) / 2 : (size.width - textWidth) / 2
-            badge = text
-            badgeRect = CGRect(x: x, y: badgeY, width: pillWidth, height: pillHeight)
-        }
         return Composition(imageRect: rect,
-                           headlineRect: textRect(width: caption.headWidth, y: textY, height: caption.head),
-                           subtitleRect: textRect(width: caption.subWidth, y: textY + caption.head + gap, height: caption.sub),
+                           headlineRect: headlineRect, subtitleRect: subtitleRect,
                            headline: headline, subtitle: subtitle, badge: badge, badgeRect: badgeRect, warnings: warnings,
                            advisories: advisories, layers: layers, callout: callout)
     }
@@ -494,7 +562,11 @@ enum ShotRenderer {
             cg.restoreGState()
         }
         if let callout = composition.callout {
-            drawCallout(callout, source: source, in: cg, unit: unit, pixelScale: pixelScale)
+            let frontLayer = composition.layers.last
+            let screenClip = frontLayer?.device?.screenPath
+                ?? frontLayer.map { CGPath(roundedRect: $0.imageRect, cornerWidth: $0.cornerRadius, cornerHeight: $0.cornerRadius, transform: nil) }
+            drawCallout(callout, source: source, in: cg, unit: unit, pixelScale: pixelScale,
+                        accent: style.accent.nsColor.cgColor, screenClip: screenClip)
         }
         // AppKit text drawing needs the flipped context flag as well as the transform.
         NSGraphicsContext.current = NSGraphicsContext(cgContext: cg, flipped: true)
@@ -516,45 +588,75 @@ enum ShotRenderer {
         return NSBitmapImageRep(cgImage: output)
     }
 
-    /// A white-bordered card showing one band of the capture, magnified, with a strong shadow.
-    private static func drawCallout(_ callout: Callout, source: CGImage, in cg: CGContext, unit: CGFloat, pixelScale: CGFloat) {
-        let border = max(4, callout.rect.width * 0.014)
-        if callout.highlight != .zero {
-            // Ring the source rows on the device and join them to the card, so the card reads as a zoom.
-            let ring = callout.highlight.insetBy(dx: border * 0.5, dy: border * 0.5)
+    /// A thin-bordered card showing one band of the capture, magnified, joined to its marked source on the screen.
+    private static func drawCallout(_ callout: Callout, source: CGImage, in cg: CGContext, unit: CGFloat, pixelScale: CGFloat,
+                                    accent: CGColor, screenClip: CGPath?) {
+        let border = cardBorder(unit: unit)
+        let ring = callout.highlight
+        if ring != .zero {
+            let stroke = markerStrokeWidth(cardBorder: border)
+            let ringPath = CGPath(roundedRect: ring.insetBy(dx: stroke / 2, dy: stroke / 2), cornerWidth: unit * 0.008,
+                                  cornerHeight: unit * 0.008, transform: nil)
             cg.saveGState()
-            cg.setStrokeColor(CGColor(gray: 1, alpha: 0.9))
-            cg.setLineWidth(border * 0.7)
-            cg.addPath(CGPath(roundedRect: ring, cornerWidth: border * 2, cornerHeight: border * 2, transform: nil))
-            cg.strokePath()
-            let below = callout.rect.minY > ring.maxY
-            let overlapMin = max(ring.minX + border * 3, callout.rect.minX + border * 3)
-            let overlapMax = min(ring.maxX - border * 3, callout.rect.maxX - border * 3)
-            let from: CGPoint, to: CGPoint
-            if overlapMin <= overlapMax {
-                // Vertical connector inside the shared horizontal span of ring and card.
-                let x = min(max(callout.rect.minX + callout.rect.width * 0.25, overlapMin), overlapMax)
-                from = CGPoint(x: x, y: below ? ring.maxY : ring.minY)
-                to = CGPoint(x: x, y: below ? callout.rect.minY - border : callout.rect.maxY + border)
-            } else {
-                // No shared span: run a diagonal from the ring's nearest corner to the card's nearest corner.
-                let ringX = callout.rect.minX > ring.maxX ? ring.maxX : ring.minX
-                let cardX = callout.rect.minX > ring.maxX ? callout.rect.minX : callout.rect.maxX
-                from = CGPoint(x: ringX, y: below ? ring.maxY : ring.minY)
-                to = CGPoint(x: cardX, y: below ? callout.rect.minY : callout.rect.maxY)
+            if callout.marker == .spotlight, let screenClip {
+                cg.addPath(screenClip)
+                cg.addPath(CGPath(roundedRect: ring, cornerWidth: unit * 0.008, cornerHeight: unit * 0.008, transform: nil))
+                cg.setFillColor(CGColor(gray: 0, alpha: 0.35))
+                cg.fillPath(using: .evenOdd)
             }
-            cg.setLineWidth(border * 0.7)
-            cg.setLineCap(.round)
-            cg.move(to: from); cg.addLine(to: to); cg.strokePath()
-            cg.fillEllipse(in: CGRect(x: from.x - border * 1.1, y: from.y - border * 1.1, width: border * 2.2, height: border * 2.2))
+            if callout.marker == .outline {
+                cg.addPath(ringPath)
+                cg.setFillColor(CGColor(gray: 1, alpha: 0.08))
+                cg.fillPath()
+            }
+            if callout.marker != .none {
+                cg.addPath(ringPath)
+                cg.setStrokeColor(accent)
+                cg.setLineWidth(stroke)
+                cg.strokePath()
+            }
+            let connector = callout.rect.minY >= ring.maxY || callout.rect.maxY <= ring.minY
+            if callout.lens == .lens, connector {
+                let quad = lensQuad(ring: ring, card: callout.rect)
+                cg.addLines(between: quad)
+                cg.closePath()
+                cg.setFillColor(CGColor(gray: 1, alpha: 0.13))
+                cg.fillPath()
+                cg.setStrokeColor(CGColor(gray: 1, alpha: 0.30))
+                cg.setLineWidth(max(1, border * 0.3))
+                cg.move(to: quad[0]); cg.addLine(to: quad[3])
+                cg.move(to: quad[1]); cg.addLine(to: quad[2])
+                cg.strokePath()
+            } else if callout.lens == .line {
+                let below = callout.rect.minY > ring.maxY
+                let overlapMin = max(ring.minX + border * 3, callout.rect.minX + border * 3)
+                let overlapMax = min(ring.maxX - border * 3, callout.rect.maxX - border * 3)
+                let from: CGPoint, to: CGPoint
+                if overlapMin <= overlapMax {
+                    let x = min(max(callout.rect.minX + callout.rect.width * 0.25, overlapMin), overlapMax)
+                    from = CGPoint(x: x, y: below ? ring.maxY : ring.minY)
+                    to = CGPoint(x: x, y: below ? callout.rect.minY - border : callout.rect.maxY + border)
+                } else {
+                    let ringX = callout.rect.minX > ring.maxX ? ring.maxX : ring.minX
+                    let cardX = callout.rect.minX > ring.maxX ? callout.rect.minX : callout.rect.maxX
+                    from = CGPoint(x: ringX, y: below ? ring.maxY : ring.minY)
+                    to = CGPoint(x: cardX, y: below ? callout.rect.minY : callout.rect.maxY)
+                }
+                cg.setStrokeColor(CGColor(gray: 1, alpha: 0.85))
+                cg.setFillColor(CGColor(gray: 1, alpha: 0.85))
+                cg.setLineWidth(border * 0.5)
+                cg.setLineCap(.round)
+                cg.move(to: from); cg.addLine(to: to); cg.strokePath()
+                cg.fillEllipse(in: CGRect(x: from.x - border * 0.8, y: from.y - border * 0.8, width: border * 1.6, height: border * 1.6))
+            }
             cg.restoreGState()
         }
         let outer = callout.rect.insetBy(dx: -border, dy: -border)
         let outerPath = CGPath(roundedRect: outer, cornerWidth: callout.cornerRadius + border,
                                cornerHeight: callout.cornerRadius + border, transform: nil)
         cg.saveGState()
-        cg.setShadow(offset: CGSize(width: 0, height: -unit * 0.02 * pixelScale), blur: unit * 0.07 * pixelScale,
-                     color: CGColor(gray: 0, alpha: 0.5))
+        cg.setShadow(offset: CGSize(width: 0, height: -unit * 0.012 * pixelScale), blur: unit * 0.045 * pixelScale,
+                     color: CGColor(gray: 0, alpha: 0.30))
         cg.addPath(outerPath)
         cg.setFillColor(CGColor(gray: 1, alpha: 0.96))
         cg.fillPath()

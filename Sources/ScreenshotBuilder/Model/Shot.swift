@@ -16,6 +16,10 @@ struct Shot: Codable, Equatable, Identifiable {
     var companion: UUID?
     /// The part of the capture a Zoom callout magnifies.
     var calloutRegion: CalloutRegion = .auto
+    /// How a Zoom callout marks its source on the device screen.
+    var calloutMarker: CalloutMarker = .spotlight
+    /// How a Zoom callout joins its card to the source.
+    var lensStyle: LensStyle = .lens
     /// Optional short label drawn as an accent pill above the headline, such as "NEW".
     var badge = ""
 
@@ -36,6 +40,8 @@ struct Shot: Codable, Equatable, Identifiable {
         arrangement = try c.decodeIfPresent(Arrangement.self, forKey: .arrangement) ?? .standard
         companion = try c.decodeIfPresent(UUID.self, forKey: .companion)
         calloutRegion = try c.decodeIfPresent(CalloutRegion.self, forKey: .calloutRegion) ?? .auto
+        calloutMarker = try c.decodeIfPresent(CalloutMarker.self, forKey: .calloutMarker) ?? .spotlight
+        lensStyle = try c.decodeIfPresent(LensStyle.self, forKey: .lensStyle) ?? .lens
         badge = try c.decodeIfPresent(String.self, forKey: .badge) ?? ""
     }
 
@@ -97,6 +103,22 @@ enum CalloutRegion: String, Codable, CaseIterable, Identifiable {
     var center: CGFloat { switch self { case .auto, .middle: 0.5; case .top: 0.22; case .bottom: 0.76 } }
 }
 
+enum CalloutMarker: String, Codable, CaseIterable, Identifiable {
+    case spotlight = "Spotlight", outline = "Outline", none = "None"
+    var id: Self { self }
+}
+
+enum LensStyle: String, Codable, CaseIterable, Identifiable {
+    case lens = "Lens", line = "Line"
+    var id: Self { self }
+}
+
+/// A run of busy rows in unit coordinates (top-left origin), such as the text lines of one list row.
+struct ContentBlock: Equatable {
+    var top: CGFloat
+    var bottom: CGFloat
+}
+
 extension Shot {
     nonisolated(unsafe) private static let detailCenters = NSCache<NSData, NSNumber>()
 
@@ -112,14 +134,14 @@ extension Shot {
 
     nonisolated(unsafe) private static let rowProfiles = NSCache<NSData, NSData>()
 
-    /// Per-row luminance spread of the capture at 256 rows (row 0 at the top). Quiet rows are gaps between UI rows.
+    /// Per-row luminance spread of the capture at 1024 rows (row 0 at the top). Quiet rows are gaps between UI rows.
     private var rowProfile: [Float] {
         let key = imageData as NSData
         if let hit = Shot.rowProfiles.object(forKey: key) {
             return (hit as Data).withUnsafeBytes { Array($0.bindMemory(to: Float.self)) }
         }
         guard let image = cgImage else { return [] }
-        let w = 64, h = 256
+        let w = 64, h = 1024
         var pixels = [UInt8](repeating: 0, count: w * h)
         let drawn = pixels.withUnsafeMutableBytes { buffer -> Bool in
             guard let context = CGContext(data: buffer.baseAddress, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w,
@@ -138,19 +160,122 @@ extension Shot {
         return profile
     }
 
-    /// Moves a band's edges (unit coordinates) to the quietest nearby rows, so a crop does not slice a row of text.
-    func snappedBand(top: CGFloat, bottom: CGFloat, reach: CGFloat = 0.035) -> (top: CGFloat, bottom: CGFloat) {
+    var contentBlocks: [ContentBlock] { Shot.contentBlocks(profile: rowProfile) }
+
+    /// The crop band (unit coordinates) for a Zoom callout: whole blocks, with both edges in the gaps between blocks.
+    func calloutBand(maxHeight: CGFloat = 0.24) -> (top: CGFloat, bottom: CGFloat) {
         let profile = rowProfile
-        guard profile.count > 1 else { return (top, bottom) }
+        return Shot.cropBand(blocks: Shot.contentBlocks(profile: profile), profile: profile,
+                             target: calloutCenter, maxHeight: maxHeight)
+    }
+
+    /// Right edge (unit x) for a narrowed crop of the rows `top`...`bottom`: the middle of the nearest quiet column gap
+    /// at or left of `limit`, so the card edge falls between words instead of through a glyph.
+    func calloutRightEdge(top: CGFloat, bottom: CGFloat, limit: CGFloat) -> CGFloat {
+        guard limit < 1, let image = cgImage else { return limit }
+        let imageHeight = CGFloat(image.height)
+        let rows = CGRect(x: 0, y: top * imageHeight, width: CGFloat(image.width), height: (bottom - top) * imageHeight).integral
+        guard let part = image.cropping(to: rows) else { return limit }
+        let w = 512, h = 128
+        var pixels = [UInt8](repeating: 0, count: w * h)
+        let drawn = pixels.withUnsafeMutableBytes { buffer -> Bool in
+            guard let context = CGContext(data: buffer.baseAddress, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w,
+                                          space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue) else { return false }
+            context.interpolationQuality = .medium
+            context.draw(part, in: CGRect(x: 0, y: 0, width: w, height: h))
+            return true
+        }
+        guard drawn else { return limit }
+        let spread: [Float] = (0..<w).map { x in
+            let column = (0..<h).map { Float(pixels[$0 * w + x]) }
+            let mean = column.reduce(0, +) / Float(h)
+            return column.reduce(0) { $0 + abs($1 - mean) } / Float(h)
+        }
+        // Row backgrounds spread every column alike, so measure against the typical empty column, not zero.
+        let ranked = spread.sorted()
+        let baseline = ranked[Int(Float(w - 1) * 0.40)], high = ranked[Int(Float(w - 1) * 0.95)]
+        let busyLevel = baseline + max(0.6, (high - baseline) * 0.05)
+        var best: CGFloat?
+        var runStart: Int?
+        for x in 0...w {
+            let quiet = x < w && spread[x] <= busyLevel
+            if quiet, runStart == nil { runStart = x }
+            if !quiet, let start = runStart {
+                runStart = nil
+                let cut = CGFloat(start + x) / 2 / CGFloat(w)
+                if x - start >= 5, cut <= limit, cut >= 0.3, cut > (best ?? 0) { best = cut }
+            }
+        }
+        return best ?? limit
+    }
+
+    /// Busy rows grouped into blocks. Quiet runs shorter than 1% of the capture height stay inside a block.
+    static func contentBlocks(profile: [Float]) -> [ContentBlock] {
+        let n = profile.count
+        guard n > 1 else { return [] }
+        let sorted = profile.sorted()
+        // Low enough that faint secondary text (dim captions, tinted labels) counts as content.
+        let busyLevel = max(0.8, sorted[Int(Float(n - 1) * 0.95)] * 0.045)
+        let minGap = Int((Double(n) * 0.01).rounded(.up))
+        func block(_ first: Int, _ last: Int) -> ContentBlock { ContentBlock(top: CGFloat(first) / CGFloat(n), bottom: CGFloat(last + 1) / CGFloat(n)) }
+        var blocks: [ContentBlock] = []
+        var start: Int?, lastBusy = 0
+        for y in 0..<n where profile[y] > busyLevel {
+            if let first = start, y - lastBusy - 1 >= minGap { blocks.append(block(first, lastBusy)); start = y }
+            else if start == nil { start = y }
+            lastBusy = y
+        }
+        if let first = start { blocks.append(block(first, lastBusy)) }
+        return blocks
+    }
+
+    /// Chooses whole consecutive blocks 0.10...`maxHeight` tall, nearest `target`, and cuts in the gaps beside them.
+    /// With no fit, takes the block nearest `target`, trimmed at its quietest rows when it is too tall.
+    static func cropBand(blocks: [ContentBlock], profile: [Float], target: CGFloat,
+                         maxHeight requested: CGFloat) -> (top: CGFloat, bottom: CGFloat) {
+        let minHeight: CGFloat = 0.10, maxHeight = max(requested, minHeight), margin: CGFloat = 0.015
+        func lowLimit(_ i: Int) -> CGFloat { i == 0 ? 0 : (blocks[i - 1].bottom + blocks[i].top) / 2 }
+        func highLimit(_ i: Int) -> CGFloat { i == blocks.count - 1 ? 1 : (blocks[i].bottom + blocks[i + 1].top) / 2 }
+        func edges(_ i: Int, _ j: Int) -> (top: CGFloat, bottom: CGFloat) {
+            (max(lowLimit(i), blocks[i].top - margin), min(highLimit(j), blocks[j].bottom + margin))
+        }
+        // The status bar, navigation bar, tab bar, and home indicator are chrome; magnified, they read as noise.
+        let usable = blocks.indices.filter { blocks[$0].top >= 0.085 && blocks[$0].bottom <= 0.885 }
+        guard let first = usable.first, let last = usable.last else {
+            let height = min(0.16, maxHeight)
+            let top = min(max(target - height / 2, 0.04), 0.96 - height)
+            return (top, top + height)
+        }
+        var best: (band: (top: CGFloat, bottom: CGFloat), distance: CGFloat, spread: CGFloat)?
+        for i in first...last {
+            for j in i...last {
+                let band = edges(i, j), height = band.bottom - band.top
+                if height > maxHeight { break }
+                guard height >= minHeight else { continue }
+                let distance = abs((band.top + band.bottom) / 2 - target), spread = abs(height - 0.17)
+                if best == nil || (distance, spread) < (best!.distance, best!.spread) { best = (band, distance, spread) }
+            }
+        }
+        if let best { return best.band }
+        let near = usable.min { abs((blocks[$0].top + blocks[$0].bottom) / 2 - target) < abs((blocks[$1].top + blocks[$1].bottom) / 2 - target) }!
+        let block = blocks[near], center = (block.top + block.bottom) / 2
+        if block.bottom - block.top <= maxHeight {
+            // Too short for any fit: widen toward the minimum without crossing into a neighbouring block.
+            return (max(lowLimit(near), min(block.top - margin, center - minHeight / 2)),
+                    min(highLimit(near), max(block.bottom + margin, center + minHeight / 2)))
+        }
+        let height = max(minHeight, min(maxHeight, 0.20))
+        let top = min(max(target - height / 2, block.top), block.bottom - height)
         let n = CGFloat(profile.count)
         func quietest(near value: CGFloat) -> CGFloat {
-            let low = max(0, Int((value - reach) * n)), high = min(profile.count - 1, Int((value + reach) * n))
-            guard low < high else { return value }
-            let best = (low...high).min { profile[$0] < profile[$1] } ?? Int(value * n)
-            return CGFloat(best) / n
+            let low = max(Int((block.top * n).rounded(.up)), Int((value - 0.02) * n))
+            let high = min(Int((block.bottom * n).rounded(.down)), Int((value + 0.02) * n))
+            guard low < high, high < profile.count else { return value }
+            let row = (low...high).min { (profile[$0], abs(CGFloat($0) / n - value)) < (profile[$1], abs(CGFloat($1) / n - value)) }!
+            return CGFloat(row) / n
         }
-        let snappedTop = quietest(near: top), snappedBottom = quietest(near: bottom)
-        return snappedBottom - snappedTop > (bottom - top) * 0.6 ? (snappedTop, snappedBottom) : (top, bottom)
+        let snapped = (top: quietest(near: top), bottom: quietest(near: top + height))
+        return snapped.bottom - snapped.top >= minHeight * 0.8 && snapped.bottom - snapped.top <= maxHeight ? snapped : (top, top + height)
     }
 
     /// Picks the band with the most luminance variation, skipping the status bar and the bottom bar.

@@ -489,9 +489,16 @@ struct BuilderTests {
                             #expect(front.bounds.minX >= -0.5 && front.bounds.maxX <= canvas.maxX + 0.5, "\(preset) \(landscape) \(layout) hero")
                         }
                         if let callout = c.callout {
-                            // The card never covers more than a sliver of its source ring.
+                            // The card never covers more than a sliver of its source ring, stays in the safe margin, and clears captions.
                             let covered = callout.rect.intersection(callout.highlight)
-                            #expect(covered.isNull || covered.height <= callout.highlight.height * 0.15, "\(preset) \(landscape) \(layout) zoom")
+                            #expect(covered.isNull || covered.height <= callout.highlight.height * 0.10 + 0.5, "\(preset) \(landscape) \(layout) zoom")
+                            let margin = ShotRenderer.CaptionMetrics(style: style).margin
+                            #expect(canvas.insetBy(dx: margin - 0.5, dy: margin - 0.5).contains(callout.rect), "\(preset) \(landscape) \(layout) margin")
+                            if layout.hasCaption {
+                                for text in [c.headlineRect, c.subtitleRect, c.badgeRect] where text.width > 0 && text.height > 0 {
+                                    #expect(!callout.rect.intersects(text), "\(preset) \(landscape) \(layout) caption")
+                                }
+                            }
                         }
                         if arrangement == .tiltLeft || arrangement == .tiltRight {
                             #expect(front.bounds.width > canvas.width || (front.bounds.minX >= -0.5 && front.bounds.maxX <= canvas.maxX + 0.5))
@@ -550,6 +557,128 @@ struct BuilderTests {
         #expect(shot.calloutCenter == CalloutRegion.bottom.center)
         shot.calloutRegion = .top
         #expect(shot.calloutCenter == CalloutRegion.top.center)
+    }
+
+    /// White capture with black text-like lines: blocks of 3-4 lines with tight gaps inside, wide gaps between blocks.
+    /// Returns the shot and each block's vertical extent in unit coordinates.
+    private func stripedShot() throws -> (shot: Shot, blocks: [ClosedRange<CGFloat>]) {
+        let width = 1320, height = 2868
+        let context = try #require(CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
+        context.setFillColor(CGColor(gray: 1, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        context.setFillColor(CGColor(gray: 0, alpha: 1))
+        var blocks: [ClosedRange<CGFloat>] = []
+        for (index, top) in stride(from: 300, through: 2540, by: 280).enumerated() {
+            let lines = index % 2 == 0 ? 4 : 3
+            for line in 0..<lines {
+                let y = top + line * 54 // 40 px of text, 14 px tight gap
+                context.fill(CGRect(x: 100, y: height - y - 40, width: 900, height: 40))
+            }
+            blocks.append(CGFloat(top) / CGFloat(height)...CGFloat(top + lines * 54 - 14) / CGFloat(height))
+        }
+        let bitmap = NSBitmapImageRep(cgImage: try #require(context.makeImage()))
+        return (Shot(name: "Stripes", imageData: try #require(bitmap.representation(using: .png, properties: [:]))), blocks)
+    }
+
+    @Test func calloutCropFallsInGaps() throws {
+        var (shot, blocks) = try stripedShot()
+        let row: CGFloat = 1.0 / 1024
+        func inGap(_ edge: CGFloat) -> Bool {
+            !blocks.contains { edge > $0.lowerBound + row && edge < $0.upperBound - row }
+        }
+        var centers: [CalloutRegion: CGFloat] = [:]
+        for region in CalloutRegion.allCases {
+            shot.calloutRegion = region
+            let band = shot.calloutBand()
+            #expect(inGap(band.top) && inGap(band.bottom), "\(region) \(band)")
+            #expect(band.bottom - band.top >= 0.10 - 0.001 && band.bottom - band.top <= 0.24 + 0.001, "\(region) \(band)")
+            centers[region] = (band.top + band.bottom) / 2
+        }
+        #expect(try #require(centers[.top]) < (try #require(centers[.middle])))
+        #expect(try #require(centers[.middle]) < (try #require(centers[.bottom])))
+    }
+
+    @Test func calloutMagnificationBounds() throws {
+        var shot = try fixture()
+        shot.arrangement = .callout
+        let source = CGSize(width: 1320, height: 2868)
+        for preset in OutputPreset.allCases {
+            for landscape in [false, true] where !(preset == .mac && landscape) {
+                for layout in CaptionLayout.allCases {
+                    var style = SetStyle()
+                    style.preset = preset; style.landscape = landscape; style.layout = layout
+                    let c = ShotRenderer.compose(shot: shot, style: style, sourceSize: source)
+                    let callout = try #require(c.callout)
+                    let label = "\(preset) landscape \(landscape) \(layout)"
+                    let zoom = callout.rect.width / callout.highlight.width
+                    #expect(preset == .mac ? zoom >= 1.5 - 1e-6 : (zoom >= 1.6 - 1e-6 && zoom <= 2.2), "\(label) zoom \(zoom)")
+                    let margin = ShotRenderer.CaptionMetrics(style: style).margin
+                    let safe = CGRect(origin: .zero, size: style.size).insetBy(dx: margin - 0.5, dy: margin - 0.5)
+                    #expect(safe.contains(callout.rect), "\(label) card \(callout.rect)")
+                    if layout.hasCaption {
+                        for text in [c.headlineRect, c.subtitleRect, c.badgeRect] where text.width > 0 && text.height > 0 {
+                            #expect(!callout.rect.intersects(text), "\(label) caption \(text)")
+                        }
+                    }
+                    let covered = callout.rect.intersection(callout.highlight)
+                    #expect(covered.isNull || covered.height <= callout.highlight.height * 0.10 + 0.5, "\(label) overlap")
+                }
+            }
+        }
+    }
+
+    @Test func lensConnectorJoinsCorners() {
+        let ring = CGRect(x: 100, y: 100, width: 200, height: 100)
+        let below = CGRect(x: 180, y: 300, width: 300, height: 150)
+        #expect(ShotRenderer.lensQuad(ring: ring, card: below) ==
+                [CGPoint(x: 100, y: 200), CGPoint(x: 300, y: 200), CGPoint(x: 480, y: 300), CGPoint(x: 180, y: 300)])
+        let lower = CGRect(x: 400, y: 500, width: 200, height: 100)
+        let above = CGRect(x: 20, y: 10, width: 150, height: 60)
+        #expect(ShotRenderer.lensQuad(ring: lower, card: above) ==
+                [CGPoint(x: 400, y: 500), CGPoint(x: 600, y: 500), CGPoint(x: 170, y: 70), CGPoint(x: 20, y: 70)])
+    }
+
+    @Test func spotlightMarkerUsesAccentAndThinStroke() throws {
+        var shot = try fixture()
+        shot.arrangement = .callout
+        shot.lensStyle = .line
+        var style = SetStyle()
+        style.accent = RGBColor(0, 1, 0)
+        let source = CGSize(width: 200, height: 400)
+        let c = ShotRenderer.compose(shot: shot, style: style, sourceSize: source)
+        let callout = try #require(c.callout)
+        let screen = try #require(c.layers.last).imageRect
+        // Just past the source rows on the side away from the card, still on the screen, clear of card and connector.
+        let cardBelow = callout.rect.midY > callout.highlight.midY
+        let outside = CGPoint(x: callout.highlight.minX + callout.highlight.width * 0.3,
+                              y: cardBelow ? callout.highlight.minY - screen.height * 0.03 : callout.highlight.maxY + screen.height * 0.03)
+        try #require(screen.contains(outside) && !callout.rect.contains(outside))
+        func render(_ marker: CalloutMarker) throws -> NSBitmapImageRep {
+            shot.calloutMarker = marker
+            return try ShotRenderer.render(shot: shot, style: style)
+        }
+        func brightness(_ bitmap: NSBitmapImageRep, _ p: CGPoint) throws -> CGFloat {
+            let color = try #require(bitmap.colorAt(x: Int(p.x), y: Int(p.y))?.usingColorSpace(.sRGB))
+            return color.redComponent + color.greenComponent + color.blueComponent
+        }
+        let spot = try render(.spotlight), plain = try render(.none), outline = try render(.outline)
+        #expect(try brightness(spot, outside) < brightness(plain, outside) * 0.75)
+        #expect(try brightness(outline, outside) >= brightness(plain, outside) * 0.99, "Outline does not dim")
+        // The ring edge carries the accent: a green pixel on a red or blue screen.
+        let edgeY = Int(callout.highlight.midY)
+        let greens = try (Int(callout.highlight.minX) - 2...Int(callout.highlight.minX) + 4).map { x -> CGFloat in
+            let color = try #require(spot.colorAt(x: x, y: edgeY)?.usingColorSpace(.sRGB))
+            return color.greenComponent - max(color.redComponent, color.blueComponent)
+        }
+        #expect((greens.max() ?? 0) > 0.3)
+        let none = try (Int(callout.highlight.minX) - 2...Int(callout.highlight.minX) + 4).map { x -> CGFloat in
+            let color = try #require(plain.colorAt(x: x, y: edgeY)?.usingColorSpace(.sRGB))
+            return color.greenComponent - max(color.redComponent, color.blueComponent)
+        }
+        #expect((none.max() ?? 0) <= 0.05, "No marker draws no outline")
+        let border = ShotRenderer.cardBorder(unit: 1320)
+        #expect(ShotRenderer.markerStrokeWidth(cardBorder: border) <= border * 0.4)
     }
 
     @Test func versionTwoShotsOpenAsStandard() throws {
