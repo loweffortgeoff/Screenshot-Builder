@@ -1,6 +1,6 @@
 # Screenshot Builder — Per-shot layouts (chapter 2)
 
-Status: proposed 2026-11-13. Waiting for Geoff's approval. Branch `feature/pro-framing` (worktree `~/.t3/worktrees/Screenshot-Builder/pro-framing`), on top of `a50d028`. `main` stays untouched. Nothing is pushed or merged.
+Status: approved 2026-11-13 (full-send); implemented; council below 8 after 3 rounds, escalated to Geoff. Branch `feature/pro-framing` (worktree `~/.t3/worktrees/Screenshot-Builder/pro-framing`), on top of `a50d028`. `main` stays untouched. Nothing is pushed or merged.
 
 ## Context
 
@@ -73,3 +73,21 @@ Chapter 1 ended at a council median of 7.3 (Opus 7.0, Sonnet 7.3, Fable 7.3). Al
 - The council stays below 8 after 3 rounds. Then ask Geoff.
 
 Simulators: I take the iPad Pro 13-inch (M5), `364195A0`, iOS 27.2, and announce when I take and release it. The iPhone 18 Pro Max captures already exist, so I do not boot that simulator.
+
+## Council results (chapter 2)
+
+| Round | Build | Opus | Sonnet | Fable | Median |
+|---|---|---|---|---|---|
+| 1 | 6353afa | 7.1 | 7.1 | 7.1 | 7.1 |
+| 2 | c51d751 | 7.1 | 7.2 | 7.2 | 7.2 |
+| 3 (final) | 02f969c | 7.1 | 7.6 | 7.5 | 7.5 |
+
+Result: below 8.0 after the 3-round cap. Escalated on 2026-11-13.
+
+Themes that repeat across all three judges in round 3:
+- Zoom: the crop still cuts a line ("Spend Over Time") on the List Happens Spending screen, and the magnification is low.
+- Editor: the preview is small, there is no zoom or whole-set view and no direct caption editing on the canvas, and the Caption and Device tabs look like bare forms.
+- iPad: devices fill too little of the canvas.
+- Mac: the frame looks schematic next to the iPhone frame.
+- Opus and Sonnet ask for more caption compositions (text beside the device, big-number layouts).
+
