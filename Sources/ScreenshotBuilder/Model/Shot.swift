@@ -398,6 +398,28 @@ extension Shot {
         return snapped.bottom - snapped.top >= minHeight * 0.8 && snapped.bottom - snapped.top <= maxHeight ? snapped : (top, top + height)
     }
 
+    /// The next taller automatic band: `band` plus the whole block below it, else the whole block above it (the first one
+    /// `accepts`), with both new edges in the gaps like `cropBand`'s. Chrome rows stay out, and the band never passes
+    /// `maxHeight`. Nil when no neighbour fits.
+    static func extendedBand(_ band: (top: CGFloat, bottom: CGFloat), blocks: [ContentBlock], maxHeight: CGFloat,
+                             accepts: ((top: CGFloat, bottom: CGFloat)) -> Bool) -> (top: CGFloat, bottom: CGFloat)? {
+        let margin: CGFloat = 0.015, slack: CGFloat = 1e-6
+        func lowLimit(_ i: Int) -> CGFloat { i == 0 ? 0 : (blocks[i - 1].bottom + blocks[i].top) / 2 }
+        func highLimit(_ i: Int) -> CGFloat { i == blocks.count - 1 ? 1 : (blocks[i].bottom + blocks[i + 1].top) / 2 }
+        // The new edge sits in the gap beside the block, as close as it can to the usual margin, but never past the cap.
+        let clear: CGFloat = 0.003
+        var candidates: [(top: CGFloat, bottom: CGFloat)] = []
+        if let below = blocks.firstIndex(where: { $0.top >= band.bottom - slack }), blocks[below].bottom <= 0.885 {
+            let edge = min(highLimit(below), blocks[below].bottom + margin, band.top + maxHeight)
+            if edge >= blocks[below].bottom + clear { candidates.append((band.top, edge)) }
+        }
+        if let above = blocks.lastIndex(where: { $0.bottom <= band.top + slack }), blocks[above].top >= 0.085 {
+            let edge = max(lowLimit(above), blocks[above].top - margin, band.bottom - maxHeight)
+            if edge <= blocks[above].top - clear { candidates.append((edge, band.bottom)) }
+        }
+        return candidates.first { $0.bottom - $0.top > band.bottom - band.top + slack && $0.bottom - $0.top <= maxHeight && accepts($0) }
+    }
+
     /// Picks the band with the most luminance variation, skipping the status bar and the bottom bar.
     private func detailBandCenter() -> CGFloat {
         guard let image = cgImage else { return 0.5 }

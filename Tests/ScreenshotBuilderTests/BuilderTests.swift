@@ -749,6 +749,83 @@ struct BuilderTests {
         }
     }
 
+    @Test func zoomUsesTheImageArea() throws {
+        let striped = try stripedShot().shot
+        for var shot in [try fixture(), striped] {
+            shot.headline = "See where your money goes"
+            shot.subtitle = "Spending over time, by store"
+            let style = SetStyle()
+            let band = ShotRenderer.captionBand(shots: [shot], style: style)
+            shot.arrangement = .standard
+            let standard = ShotRenderer.compose(shot: shot, style: style, sourceSize: phoneSource, captionBand: band)
+            shot.arrangement = .callout
+            let zoom = ShotRenderer.compose(shot: shot, style: style, sourceSize: phoneSource, captionBand: band)
+            let device = try #require(zoom.layers.last)
+            let callout = try #require(zoom.callout)
+            let card = callout.rect
+            let group = device.frame.union(card)
+            let standardGap = try #require(standard.layers.last).bounds.minY - standard.subtitleRect.maxY
+            #expect(group.minY - zoom.subtitleRect.maxY <= standardGap * 1.5, "the group starts right after the caption")
+            let metrics = ShotRenderer.CaptionMetrics(style: style)
+            let area = style.size.height - metrics.margin * 2.25 - band.height - metrics.separation
+            // The card spans the safe width, so the device tops out where the zoom reaches its 1.6 floor. That fixes the
+            // device at about 0.71 of the image area; a card that hangs below the device adds to it (0.76 on a real capture).
+            #expect(abs(callout.rect.width / callout.highlight.width - 1.6) < 0.001, "the device is as large as the floor allows")
+            #expect(group.height >= area * 0.70, "the device and card take \(group.height / area) of the image area")
+        }
+    }
+
+    /// White capture with small two-line text blocks, one every 135 px: an automatic band holds three or four of them, so
+    /// the next whole block still fits under the 0.24 cap.
+    private func smallBlocksShot() throws -> (shot: Shot, blocks: [ClosedRange<CGFloat>]) {
+        let width = 1320, height = 2868
+        let context = try #require(CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
+        context.setFillColor(CGColor(gray: 1, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        context.setFillColor(CGColor(gray: 0, alpha: 1))
+        var blocks: [ClosedRange<CGFloat>] = []
+        for index in 0..<14 {
+            let top = 800 + index * 135
+            for line in 0..<2 { context.fill(CGRect(x: 100, y: height - (top + line * 54) - 40, width: 900, height: 40)) }
+            blocks.append(CGFloat(top) / CGFloat(height)...CGFloat(top + 94) / CGFloat(height))
+        }
+        let bitmap = NSBitmapImageRep(cgImage: try #require(context.makeImage()))
+        return (Shot(name: "Small blocks", imageData: try #require(bitmap.representation(using: .png, properties: [:]))), blocks)
+    }
+
+    @Test func zoomGrowsAShortBandByWholeBlocksToFillTheImageArea() throws {
+        var (shot, blocks) = try smallBlocksShot()
+        shot.headline = "See where your money goes"
+        shot.subtitle = "Spending over time, by store"
+        shot.arrangement = .callout
+        let row: CGFloat = 1.0 / 1024
+        func inGap(_ edge: CGFloat) -> Bool { !blocks.contains { edge > $0.lowerBound + row && edge < $0.upperBound - row } }
+        let style = SetStyle()
+        for region in [CalloutRegion.middle, .top] {
+            shot.calloutRegion = region
+            // What the auto band alone would be: the card is no taller than this without the growth.
+            let plain = shot.calloutBand()
+            let c = ShotRenderer.compose(shot: shot, style: style, sourceSize: phoneSource)
+            let callout = try #require(c.callout)
+            let band = callout.source
+            #expect(band.height > plain.bottom - plain.top + 0.01, "\(region) grew from \(plain)")
+            #expect(band.height <= 0.24 + 0.001 && band.height >= Shot.minCalloutHeight, "\(region) \(band)")
+            #expect(inGap(band.minY) && inGap(band.maxY), "\(region) edges stay between rows: \(band)")
+            // A card below its ring reaches down to within about 12% of the canvas bottom. One above its ring
+            // (a ring low on the screen) leaves the device's own bottom as the limit, so only the first case is asserted.
+            if callout.rect.minY > callout.highlight.minY {
+                let empty = (style.size.height - callout.rect.maxY) / style.size.height
+                #expect(empty <= 0.12, "\(region) empty under the card: \(empty)")
+            }
+        }
+        // A custom region is the user's choice and keeps its rect.
+        shot.calloutRegion = .custom
+        shot.calloutRect = CGRect(x: 0.05, y: 0.4, width: 0.9, height: 0.12)
+        let custom = try #require(ShotRenderer.compose(shot: shot, style: style, sourceSize: phoneSource).callout)
+        #expect(custom.source == shot.calloutRect)
+    }
+
     @Test func lensConnectorJoinsCorners() {
         let ring = CGRect(x: 100, y: 100, width: 200, height: 100)
         let below = CGRect(x: 180, y: 300, width: 300, height: 150)
@@ -1303,7 +1380,15 @@ struct BuilderTests {
                         let captionOnRight = arrangement == .heroLeft
                         #expect((c.headlineRect.midX > width / 2) == captionOnRight, "\(label) caption half")
                         #expect((device.midX > width / 2) != captionOnRight, "\(label) device half")
-                        #expect(c.headlineRect.midY < style.size.height * 0.62 && c.headlineRect.midY > style.size.height * 0.3, "\(label) centered")
+                        let portraitPhone = [OutputPreset.phone69, .phone55].contains(preset) && !landscape
+                        if portraitPhone {
+                            // The device stands low and the caption sits above it, centered in that space.
+                            let top = try #require(c.layers.map(\.bounds.minY).min())
+                            #expect(c.subtitleRect.maxY <= top, "\(label) caption above the device")
+                            #expect(c.headlineRect.midY < top / 2 + style.size.height * 0.1, "\(label) centered above the device")
+                        } else {
+                            #expect(c.headlineRect.midY < style.size.height * 0.62 && c.headlineRect.midY > style.size.height * 0.3, "\(label) centered")
+                        }
                     }
                 }
             }
@@ -1313,14 +1398,47 @@ struct BuilderTests {
     @Test func sideBySideDeviceBoxOnPortraitPhone() throws {
         var style = SetStyle()
         style.composition = .sideBySide
+        let canvas = CGRect(origin: .zero, size: style.size)
         let c = ShotRenderer.compose(shot: try fixture(), style: style, sourceSize: phoneSource)
         let device = try #require(c.layers.last).bounds
-        // The box is 0.62 of the canvas height; a half canvas cannot hold that much width, so the device is smaller than the box.
-        #expect(device.height <= style.size.height * 0.62 + 0.5)
-        #expect(device.height >= style.size.height * 0.45)
-        // It may run off the outer edge by a few percent, never off the caption side.
-        #expect(device.maxX <= style.size.width + device.width * 0.09)
-        #expect(device.minX > c.textColumn.maxX)
+        // Fully inside side to side, on the right, 0.52 to 0.56 of the canvas wide, and rising off the bottom edge.
+        #expect(device.minX >= 0 && device.maxX <= canvas.maxX, "no side clip: \(device)")
+        #expect(device.midX > canvas.midX)
+        #expect(device.width >= canvas.width * 0.52 && device.width <= canvas.width * 0.56 + 0.5, "width \(device.width / canvas.width)")
+        #expect(device.maxY > canvas.maxY && device.maxY <= canvas.maxY + device.height * 0.06, "bleeds off the bottom")
+        // The caption keeps Stacked's headline size and sits left-aligned above the device.
+        style.composition = .stacked
+        let stacked = ShotRenderer.compose(shot: try fixture(), style: style, sourceSize: phoneSource)
+        #expect(abs(fontSize(c.headline) - fontSize(stacked.headline)) < 0.01, "Stacked's headline size")
+        #expect(c.subtitleRect.maxY <= device.minY)
+        // The Size slider scales the device in proportion.
+        style.composition = .sideBySide
+        style.imageScale = 0.7
+        let small = try #require(ShotRenderer.compose(shot: try fixture(), style: style, sourceSize: phoneSource).layers.last).bounds
+        #expect(abs(small.width / device.width - 0.7 / 0.94) < 0.01)
+        // Every arrangement stays inside side to side, and Hero left mirrors the placement.
+        style.imageScale = 0.94
+        for arrangement in [Arrangement.standard, .tiltLeft, .tiltRight, .heroLeft, .heroRight] {
+            var shot = try fixture()
+            shot.arrangement = arrangement
+            let placed = try #require(ShotRenderer.compose(shot: shot, style: style, sourceSize: phoneSource).layers.last).bounds
+            #expect(canvas.insetBy(dx: -0.5, dy: 0).contains(CGRect(x: placed.minX, y: canvas.minY, width: placed.width, height: 1)), "\(arrangement) \(placed)")
+            #expect(placed.maxY > canvas.maxY - 1, "\(arrangement) stands on the bottom edge")
+        }
+    }
+
+    @Test func sideBySideLongHeadlineStepsDownAndStaysAboveTheDevice() throws {
+        var shot = try fixture()
+        shot.headline = "Beautifully organized notifications for everything you save"
+        shot.badge = "New"
+        var style = SetStyle()
+        style.composition = .sideBySide
+        let band = ShotRenderer.captionBand(shots: [shot], style: style)
+        let c = ShotRenderer.compose(shot: shot, style: style, sourceSize: phoneSource, captionBand: band)
+        let device = try #require(c.layers.last).bounds
+        #expect(c.warnings.isEmpty, "\(c.warnings)")
+        #expect(try #require(band.group(for: .sideBySide)).headScale < 1)
+        #expect(c.badgeRect.minY >= 0 && c.subtitleRect.maxY <= device.minY)
     }
 
     @Test func sideBySideShrinksTheHeadlineTogetherAndKeepsWordsWhole() throws {
@@ -1386,17 +1504,56 @@ struct BuilderTests {
         #expect(c.advisories.isEmpty)
         style.composition = .stacked
         let stacked = ShotRenderer.compose(shot: shot, style: style, sourceSize: phoneSource)
-        #expect(abs(fontSize(c.headline) - fontSize(stacked.headline) * 1.6) < 0.01, "1.6x headline")
-        // Badge, headline, and subtitle sit as one block, centered on the canvas.
-        let block = c.badgeRect.union(c.headlineRect).union(c.subtitleRect)
-        #expect(c.badge != nil && abs(block.midY - style.size.height / 2) < 1)
-        // Rendering draws text on the plain background with no device.
+        #expect(abs(fontSize(c.headline) - fontSize(stacked.headline) * 2.2) < 0.01, "2.2x headline")
+        #expect(abs(fontSize(c.subtitle) - fontSize(stacked.subtitle) * 1.35) < 0.01, "1.35x subtitle")
+        // Accent bar, badge, headline, and subtitle sit as one block, a little above the canvas middle (0.45 of its height).
+        let bar = c.accentBar
+        #expect(abs(bar.width - style.size.width * 0.12) < 0.5 && abs(bar.height - fontSize(c.headline) * 0.12) < 0.5)
+        #expect(abs(bar.midX - style.size.width / 2) < 0.5, "centered like the text")
+        #expect(bar.maxY <= c.badgeRect.minY && c.badgeRect.maxY <= c.headlineRect.minY)
+        let block = bar.union(c.badgeRect).union(c.headlineRect).union(c.subtitleRect)
+        #expect(c.badge != nil && abs(block.midY - style.size.height * 0.45) < 1)
+        #expect(stacked.accentBar == .zero)
         style.composition = .textOnly
+        style.alignment = .leading
+        let leading = ShotRenderer.compose(shot: shot, style: style, sourceSize: phoneSource)
+        #expect(leading.accentBar.minX == leading.textColumn.minX && leading.badgeRect.minX == leading.textColumn.minX, "aligned like the text")
+        style.alignment = .center
+        // Rendering draws text and the accent bar on the plain background with no device.
         let bitmap = try ShotRenderer.render(shot: shot, style: style, maxDimension: 400)
         #expect(bitmap.pixelsWide > 0)
+        let scale = CGFloat(bitmap.pixelsWide) / style.size.width
+        let pixel = try #require(bitmap.colorAt(x: Int(bar.midX * scale), y: Int(bar.midY * scale))?.usingColorSpace(.sRGB))
+        let accent = style.accent.nsColor.usingColorSpace(.sRGB)!
+        #expect(abs(pixel.redComponent - accent.redComponent) < 0.03 && abs(pixel.greenComponent - accent.greenComponent) < 0.03, "the bar is drawn in the accent color")
         // Screenshot only wins: the shot draws as before, with its device and no caption.
         style.layout = .imageOnly
         #expect(ShotRenderer.compose(shot: shot, style: style, sourceSize: phoneSource).layers.count == 1)
+    }
+
+    @Test func textOnlyStepsLongHeadlinesDownToFitEveryCanvas() throws {
+        var long = try fixture()
+        long.headline = "Beautifully organized notifications for everything you save and share"
+        long.subtitle = "Everything stays in one calm place"
+        let short = try fixture()
+        for preset in OutputPreset.allCases {
+            for landscape in [false, true] where !(landscape && preset == .mac) {
+                var style = SetStyle()
+                style.preset = preset; style.landscape = landscape; style.composition = .textOnly
+                let band = ShotRenderer.captionBand(shots: [long, short], style: style)
+                let label = "\(preset) \(landscape)"
+                let group = try #require(band.group(for: .textOnly))
+                let a = ShotRenderer.compose(shot: long, style: style, sourceSize: phoneSource, captionBand: band)
+                let b = ShotRenderer.compose(shot: short, style: style, sourceSize: phoneSource, captionBand: band)
+                let canvas = CGRect(origin: .zero, size: style.size)
+                #expect(a.warnings.isEmpty && b.warnings.isEmpty, "\(label) \(a.warnings)")
+                #expect(group.headScale < 1,"\(label) the long headline steps the group down")
+                #expect(fontSize(a.headline) == fontSize(b.headline), "\(label) one size for the group")
+                for rect in [a.accentBar, a.headlineRect, a.subtitleRect] {
+                    #expect(canvas.insetBy(dx: -0.5, dy: -0.5).contains(rect), "\(label) \(rect)")
+                }
+            }
+        }
     }
 
     @Test func overlayBandSitsOverTheDeviceAndFrostsIt() throws {
