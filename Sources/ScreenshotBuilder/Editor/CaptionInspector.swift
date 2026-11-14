@@ -4,12 +4,43 @@ struct CaptionInspector: View {
     @Binding var shot: Shot
     let position: Int
     let style: SetStyle
+    /// The set's decorations; the eyebrow mode and app name apply to every shot.
+    @Binding var decor: Decor
     var captionBand: ShotRenderer.CaptionBand?
     var companion: Shot?
     let replaceImage: () -> Void
 
     var body: some View {
         captionSection
+        if style.layout.hasCaption { decorSection }
+    }
+
+    @ViewBuilder private var decorSection: some View {
+        Section {
+            Picker("Eyebrow", selection: $decor.eyebrow) {
+                ForEach(EyebrowMode.allCases) { Text($0.rawValue).tag($0) }
+            }
+            .help("A small label above the headline: the app name, a section name, or a number.")
+            switch decor.eyebrow {
+            case .off:
+                EmptyView()
+            case .appName:
+                field("App name", text: Binding(get: { decor.appName }, set: { if $0 != decor.appName { decor.appName = $0 } }),
+                      prompt: "App name", lines: 1...1) { EmptyView() }
+            case .section, .numbered:
+                field("Section, this shot", text: changed(\.eyebrow), prompt: decor.eyebrow == .numbered ? "Optional, after the number" : "Such as Spending",
+                      lines: 1...1) { EmptyView() }
+            }
+            if decor.eyebrow != .off {
+                Toggle("Monospaced eyebrow", isOn: $decor.monoEyebrow)
+            }
+            Toggle("Accent rule", isOn: $decor.rule)
+                .help("A short accent bar at the start of the eyebrow line.")
+            Toggle("Accent shapes", isOn: $decor.shapes)
+                .help("A small pill and square in the top corner. They hide when the caption or device needs the space.")
+        } header: {
+            Text("Decorations (set)")
+        }
     }
 
     @ViewBuilder private var captionSection: some View {

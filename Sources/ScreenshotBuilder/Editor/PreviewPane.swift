@@ -19,6 +19,8 @@ struct PreviewPane: View {
     @Binding var fitZoom: CGFloat
     /// Writes an edit made on the canvas back to the document.
     var update: (Shot) -> Void = { _ in }
+    /// Writes an App name eyebrow edited on the canvas back to the set.
+    var updateAppName: (String) -> Void = { _ in }
     /// A single click on the device opens the arrangement controls.
     var showArrangement: () -> Void = {}
     let importImages: () -> Void
@@ -107,7 +109,7 @@ struct PreviewPane: View {
         .onTapGesture(count: 2) { location in
             let point = CGPoint(x: location.x / scale, y: location.y / scale)
             guard let layout, style.layout.hasCaption else { return }
-            let targets: [(CanvasText, CGRect)] = [(.badge, layout.badgeRect), (.stat, layout.statRect),
+            let targets: [(CanvasText, CGRect)] = [(.eyebrow, layout.eyebrowRect), (.badge, layout.badgeRect), (.stat, layout.statRect),
                                                    (.headline, layout.headlineRect), (.subtitle, layout.subtitleRect)]
                 .filter { !$0.1.isEmpty }
             if let hit = targets.first(where: { $0.1.insetBy(dx: -12, dy: -8).contains(point) }) { beginEditing(hit.0, shot: shot) }
@@ -243,13 +245,14 @@ struct PreviewPane: View {
             case .subtitle: style.subtitleFont(size: metrics.subSize * scale)
             case .badge: style.font.font(size: max(11, metrics.subSize * 0.62 * scale), weight: CaptionWeight.bold)
             case .stat: ShotRenderer.statFont(style: style, size: metrics.statSize * scale)
+            case .eyebrow: ShotRenderer.eyebrowFont(style: style, size: max(11, ShotRenderer.eyebrowSize(metrics) * scale))
             }
-            let centered = style.drawingStyle(for: shot).alignment == .center && editing != .badge
+            let centered = style.drawingStyle(for: shot).alignment == .center && editing != .badge && editing != .eyebrow
                 && layout.composition != .sideBySide
             TextField(editing.title, text: $draft, axis: .vertical)
                 .textFieldStyle(.plain)
                 .font(Font(font))
-                .foregroundStyle(editing == .stat ? style.accent.color : style.foreground.color)
+                .foregroundStyle(editing == .stat || editing == .eyebrow ? style.accent.color : style.foreground.color)
                 .multilineTextAlignment(centered ? .center : .leading)
                 .focused($editorFocused)
                 .autocorrectionDisabled()
@@ -279,13 +282,18 @@ struct PreviewPane: View {
         case .stat: return CGRect(x: x, y: layout.statRect.minY, width: width, height: layout.statRect.height)
         case .badge: return CGRect(x: layout.badgeRect.minX, y: layout.badgeRect.minY, width: max(layout.badgeRect.width, metrics.textWidth * 0.4),
                                    height: layout.badgeRect.height)
+        case .eyebrow: return CGRect(x: layout.eyebrowRect.minX, y: layout.eyebrowRect.minY,
+                                     width: max(layout.eyebrowRect.width, metrics.textWidth * 0.5), height: layout.eyebrowRect.height)
         }
     }
+
+    /// An App name eyebrow belongs to the set; every other canvas text belongs to the shot.
+    private func editsAppName(_ text: CanvasText) -> Bool { text == .eyebrow && style.decor.eyebrow == .appName }
 
     private func beginEditing(_ text: CanvasText, shot: Shot) {
         // Opening a second field commits the first, like any other click-away.
         if editing != nil { commitEdit(shot: shot) }
-        draft = shot[keyPath: text.keyPath]
+        draft = editsAppName(text) ? style.decor.appName : shot[keyPath: text.keyPath]
         draftStart = draft
         editing = text
         DispatchQueue.main.async { editorFocused = true }
@@ -296,8 +304,12 @@ struct PreviewPane: View {
         self.editing = nil
         // An untouched editor writes nothing, so a stored newline is not rewritten and the document stays clean.
         guard draft != draftStart else { return }
-        var edited = shot
         let text = editing == .headline ? draft : draft.replacingOccurrences(of: "\n", with: " ")
+        if editsAppName(editing) {
+            if style.decor.appName != text { updateAppName(text) }
+            return
+        }
+        var edited = shot
         guard edited[keyPath: editing.keyPath] != text else { return }
         edited[keyPath: editing.keyPath] = text
         update(edited)
@@ -408,12 +420,25 @@ struct PreviewPane: View {
 
 /// Caption text that can be edited in place on the canvas.
 enum CanvasText {
-    case headline, subtitle, badge, stat
+    case headline, subtitle, badge, stat, eyebrow
+    /// The shot field the editor writes. An App name eyebrow writes the set's app name instead (see `PreviewPane`).
     var keyPath: WritableKeyPath<Shot, String> {
-        switch self { case .headline: \.headline; case .subtitle: \.subtitle; case .badge: \.badge; case .stat: \.stat }
+        switch self {
+        case .headline: \.headline
+        case .subtitle: \.subtitle
+        case .badge: \.badge
+        case .stat: \.stat
+        case .eyebrow: \.eyebrow
+        }
     }
     var title: String {
-        switch self { case .headline: "Headline"; case .subtitle: "Subtitle"; case .badge: "Badge"; case .stat: "Stat" }
+        switch self {
+        case .headline: "Headline"
+        case .subtitle: "Subtitle"
+        case .badge: "Badge"
+        case .stat: "Stat"
+        case .eyebrow: "Eyebrow"
+        }
     }
 }
 

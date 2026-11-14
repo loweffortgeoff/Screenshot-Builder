@@ -194,6 +194,7 @@ struct EditorView: View {
                             update: { edited in
                                 if let index = document.shots.firstIndex(where: { $0.id == edited.id }) { document.shots[index] = edited }
                             },
+                            updateAppName: { document.style.decor.appName = $0 },
                             showArrangement: { tab = .style },
                             importImages: { replacing = nil; importing = true })
             }
@@ -221,6 +222,7 @@ struct EditorView: View {
             Form {
                 if tab == .caption, let index = selectedIndex {
                     CaptionInspector(shot: $document.shots[index], position: index + 1, style: document.style,
+                                     decor: $document.style.decor,
                                      captionBand: ShotRenderer.captionBand(shots: document.shots, style: document.style),
                                      companion: ShotRenderer.companion(for: document.shots[index], in: document.shots),
                                      replaceImage: { replacing = selection; importing = true })
