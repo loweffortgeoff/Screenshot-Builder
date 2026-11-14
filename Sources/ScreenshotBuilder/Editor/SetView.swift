@@ -11,10 +11,16 @@ struct SetView: View {
     /// Moves the shot with this id to the index of another shot.
     let reorder: (UUID, Int) -> Void
     @State private var target: UUID?
+    /// The tile being dragged and how far it has moved. Reorder uses a plain drag gesture, like the Zoom card drag,
+    /// not the system drag-and-drop session (Geoff could not start one with a mouse or trackpad).
+    @State private var dragging: UUID?
+    @State private var dragOffset: CGSize = .zero
+    @State private var frames: [UUID: CGRect] = [:]
 
     private static let gap: CGFloat = 18
     private static let label: CGFloat = 22
     private static let padding: CGFloat = 28
+    private nonisolated static let space = "setView"
 
     /// Rows and tile height that make the tiles largest in `size`.
     private func layout(in size: CGSize) -> (rows: Int, columns: Int, height: CGFloat) {
@@ -43,6 +49,7 @@ struct SetView: View {
                 }
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
+            .coordinateSpace(name: Self.space)
         }
         .background(Color(nsColor: .underPageBackgroundColor))
     }
@@ -76,20 +83,26 @@ struct SetView: View {
                 .frame(height: Self.label - 6)
         }
         .contentShape(Rectangle())
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.space)) } action: { frames[shot.id] = $0 }
+        // The dragged tile lifts and follows the pointer; the tile under the pointer shows where it lands.
+        .scaleEffect(dragging == shot.id ? 1.04 : 1)
+        .offset(dragging == shot.id ? dragOffset : .zero)
+        .zIndex(dragging == shot.id ? 1 : 0)
+        .opacity(dragging == shot.id ? 0.9 : 1)
         .onTapGesture { open(shot.id) }
-        .draggable(shot.id.uuidString) {
-            Group {
-                if let image = thumbnails[shot.id] { Image(nsImage: image).resizable() } else { Rectangle().fill(.quaternary) }
+        .gesture(DragGesture(minimumDistance: 4, coordinateSpace: .named(Self.space))
+            .onChanged { value in
+                dragging = shot.id
+                dragOffset = value.translation
+                let over = frames.first { $0.key != shot.id && $0.value.contains(value.location) }?.key
+                if target != over { target = over }
             }
-            .frame(width: 90 * canvasAspect, height: 90)
-        }
-        .dropDestination(for: String.self) { items, _ in
-            guard let raw = items.first, let id = UUID(uuidString: raw), id != shot.id else { return false }
-            reorder(id, index)
-            return true
-        } isTargeted: { inside in
-            if inside { target = shot.id } else if target == shot.id { target = nil }
-        }
+            .onEnded { value in
+                let over = frames.first { $0.key != shot.id && $0.value.contains(value.location) }?.key
+                let destination = over.flatMap { id in shots.firstIndex { $0.id == id } }
+                dragging = nil; dragOffset = .zero; target = nil
+                if let destination { reorder(shot.id, destination) }
+            })
         .help("Click to edit. Drag to reorder.")
         .accessibilityLabel("Shot \(index + 1). \(shot.headline.replacingOccurrences(of: "*", with: ""))")
         .accessibilityAddTraits(.isButton)
