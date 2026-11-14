@@ -1,33 +1,35 @@
 import SwiftUI
 
+/// Sidebar row with the composed shot, so the list shows what will export.
 struct ShotRow: View {
     let name: String
     let headline: String
-    let imageData: Data
+    let thumbnail: NSImage?
+    let canvasAspect: CGFloat
     let position: Int
-    @State private var thumbnail: NSImage?
 
     var body: some View {
         HStack(spacing: 10) {
-            if let thumbnail {
-                Image(nsImage: thumbnail).resizable().scaledToFit().frame(width: 40, height: 64)
-                    .accessibilityHidden(true)
+            Group {
+                if let thumbnail {
+                    Image(nsImage: thumbnail).resizable().interpolation(.high)
+                } else {
+                    Rectangle().fill(.quaternary)
+                }
             }
-            VStack(alignment: .leading, spacing: 4) {
+            .aspectRatio(canvasAspect, contentMode: .fit)
+            .frame(width: canvasAspect < 1 ? 38 : 64, height: canvasAspect < 1 ? 64 : 40)
+            .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous).strokeBorder(Color.primary.opacity(0.12)))
+            .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
                 Text("Shot \(position)").font(.caption).foregroundStyle(.secondary)
-                Text(headline.isEmpty ? name : headline.replacingOccurrences(of: "*", with: "")).font(.body).fixedSize(horizontal: false, vertical: true)
+                Text(headline.isEmpty ? name : headline.replacingOccurrences(of: "*", with: ""))
+                    .font(.callout.weight(.medium))
+                    .lineLimit(2)
             }
         }
-        .padding(.vertical, 6)
+        .padding(.vertical, 4)
         .accessibilityElement(children: .combine)
-        .task(id: imageData) {
-            guard let source = CGImageSourceCreateWithData(imageData as CFData, nil),
-                  let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
-                    kCGImageSourceCreateThumbnailFromImageAlways: true,
-                    kCGImageSourceCreateThumbnailWithTransform: true,
-                    kCGImageSourceThumbnailMaxPixelSize: 160
-                  ] as CFDictionary) else { return }
-            thumbnail = NSImage(cgImage: image, size: CGSize(width: image.width, height: image.height))
-        }
     }
 }

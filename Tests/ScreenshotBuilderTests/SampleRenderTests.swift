@@ -40,6 +40,7 @@ struct SampleRenderTests {
             document.shots.append(shot)
         }
         try #require(!document.shots.isEmpty)
+        if let raw = env["SB_LAYOUT"], let value = CaptionLayout(rawValue: raw) { document.style.layout = value }
         if let raw = env["SB_ALIGN"], let value = CaptionAlignment(rawValue: raw) { document.style.alignment = value }
         if let raw = env["SB_FONT"], let value = CaptionFont(rawValue: raw) { document.style.font = value }
         let band = ShotRenderer.captionBand(shots: document.shots, style: document.style)

@@ -80,7 +80,7 @@ enum ShotRenderer {
         let size = style.size
         let metrics = CaptionMetrics(style: style)
         let margin = metrics.margin
-        let hasCaption = style.layout != .imageOnly
+        let hasCaption = style.layout.hasCaption
         let headline = headlineText(shot.headline, style: style, size: metrics.headSize)
         let subtitle = subtitleText(shot.subtitle, style: style, size: metrics.subSize)
         let caption = captionHeight(shot: shot, style: style, metrics: metrics)
@@ -88,11 +88,26 @@ enum ShotRenderer {
         let captionHeight = hasCaption ? (captionBand ?? metrics.maxBand) : 0
         let separation = hasCaption ? metrics.separation : 0
         let top = margin * 1.25
-        let imageArea = CGRect(x: margin, y: top + (style.layout == .above ? captionHeight + separation : 0),
+        let imageArea = CGRect(x: margin, y: top + (style.layout.captionOnTop ? captionHeight + separation : 0),
                                width: size.width - margin * 2,
                                height: size.height - top - margin - captionHeight - separation)
         let available = imageArea.insetBy(dx: imageArea.width * (1 - style.imageScale) / 2,
                                           dy: imageArea.height * (1 - style.imageScale) / 2)
+        /// Fits content in the image area. Bleed layouts grow the box past one canvas edge
+        /// and pin the content to the opposite edge, so the device runs off the canvas.
+        func place(_ aspect: CGSize) -> CGRect {
+            guard style.layout == .bleedBottom || style.layout == .bleedTop else { return Self.fit(aspect, in: available) }
+            // Bleed: a device wider than the normal fit, pinned below the caption, so it runs off the far edge.
+            var width = size.width * 0.88 * style.imageScale
+            var height = width * aspect.height / aspect.width
+            if height > available.height * 1.3 {
+                height = available.height * 1.3
+                width = height * aspect.width / aspect.height
+            }
+            let inset = available.height * 0.015
+            let y = style.layout == .bleedBottom ? available.minY + inset : available.maxY - inset - height
+            return CGRect(x: available.midX - width / 2, y: y, width: width, height: height)
+        }
         let spec = DeviceSpec.for(style.preset)
         var device: DeviceFrame?
         let rect: CGRect
@@ -101,20 +116,20 @@ enum ShotRenderer {
         case .device:
             let rotated = style.landscape && style.preset != .mac
             let frame = DeviceFrame(spec: spec, landscape: rotated,
-                                    rect: Self.fit(DeviceFrame.outerSize(spec, landscape: rotated), in: available))
+                                    rect: place(DeviceFrame.outerSize(spec, landscape: rotated)))
             device = frame
             // Captures keep their proportions; a mismatched capture sits on black glass.
             rect = Self.fit(sourceSize, in: frame.screenRect)
         case .rounded:
-            rect = Self.fit(sourceSize, in: available)
+            rect = place(sourceSize)
             let ratio = spec.screenRadius > 0 ? spec.screenRadius / min(spec.screen.width, spec.screen.height) : 0.04
             cornerRadius = min(rect.width, rect.height) * ratio
         case .none:
-            rect = Self.fit(sourceSize, in: available)
+            rect = place(sourceSize)
         }
         let fit = rect.width / sourceSize.width
         // Captions sit at the top of the band, so headlines line up across the set.
-        let captionTop = style.layout == .below ? size.height - margin * 1.6 - captionHeight : top
+        let captionTop = style.layout.captionOnTop ? top : size.height - margin * 1.6 - captionHeight
         let textY = captionTop
         let textWidth = metrics.textWidth
         var warnings: [String] = []
@@ -195,7 +210,7 @@ enum ShotRenderer {
         }
         // AppKit text drawing needs the flipped context flag as well as the transform.
         NSGraphicsContext.current = NSGraphicsContext(cgContext: cg, flipped: true)
-        if style.layout != .imageOnly {
+        if style.layout.hasCaption {
             composition.headline.draw(with: composition.headlineRect, options: [.usesLineFragmentOrigin, .usesFontLeading])
             composition.subtitle.draw(with: composition.subtitleRect, options: [.usesLineFragmentOrigin, .usesFontLeading])
         }

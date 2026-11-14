@@ -2,8 +2,21 @@ import SwiftUI
 import AppKit
 
 enum CaptionLayout: String, Codable, CaseIterable, Identifiable {
-    case above = "Caption above", below = "Caption below", imageOnly = "Screenshot only"
+    case above = "Caption above", bleedBottom = "Bleed bottom", below = "Caption below",
+         bleedTop = "Bleed top", imageOnly = "Screenshot only"
     var id: Self { self }
+    var hasCaption: Bool { self != .imageOnly }
+    var captionOnTop: Bool { self == .above || self == .bleedBottom }
+    /// Short name for template tiles.
+    var title: String {
+        switch self {
+        case .above: "Top"
+        case .bleedBottom: "Bleed"
+        case .below: "Bottom"
+        case .bleedTop: "Bleed up"
+        case .imageOnly: "None"
+        }
+    }
 }
 
 enum CaptionFont: String, Codable, CaseIterable, Identifiable {

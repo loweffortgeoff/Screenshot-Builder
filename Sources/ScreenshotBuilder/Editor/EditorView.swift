@@ -10,20 +10,25 @@ struct EditorView: View {
     @State private var message: String?
     @State private var exportedFolder: URL?
     @State private var exporting = false
+    @State private var thumbnails: [UUID: NSImage] = [:]
+
+    private var selectedIndex: Int? { document.shots.firstIndex(where: { $0.id == selection }) }
+    private var canvasAspect: CGFloat { document.style.size.width / document.style.size.height }
 
     var body: some View {
         NavigationSplitView {
             List(selection: $selection) {
-                ForEach(document.shots) { shot in
-                    ShotRow(name: shot.name, headline: shot.headline, imageData: shot.imageData,
-                            position: (document.shots.firstIndex(where: { $0.id == shot.id }) ?? 0) + 1)
+                ForEach(Array(document.shots.enumerated()), id: \.element.id) { index, shot in
+                    ShotRow(name: shot.name, headline: shot.headline, thumbnail: thumbnails[shot.id],
+                            canvasAspect: canvasAspect, position: index + 1)
                         .tag(shot.id)
                         .contextMenu {
                             Button("Move Earlier") { move(shot.id, by: -1) }
-                                .disabled(document.shots.first?.id == shot.id)
+                                .disabled(index == 0)
                             Button("Move Later") { move(shot.id, by: 1) }
-                                .disabled(document.shots.last?.id == shot.id)
+                                .disabled(index == document.shots.count - 1)
                             Divider()
+                            Button("Replace Image…") { replacing = shot.id; importing = true }
                             Button("Remove Screenshot…", role: .destructive) { removal = shot.id }
                         }
                 }
@@ -32,45 +37,75 @@ struct EditorView: View {
             .navigationTitle("Screenshots")
             .safeAreaInset(edge: .bottom) {
                 HStack {
-                    Text("\(document.shots.count) of 10").font(.caption).foregroundStyle(.secondary)
+                    Text("\(document.shots.count) of 10 screenshots").font(.caption).foregroundStyle(.secondary)
+                        .help("App Store Connect accepts up to 10 screenshots per device size.")
                     Spacer()
                     Button { replacing = nil; importing = true } label: { Label("Import", systemImage: "plus") }
                         .disabled(document.shots.count >= 10)
-                }.padding()
+                }
+                .padding(12)
+                .background(.bar)
             }
-            .navigationSplitViewColumnWidth(min: 190, ideal: 230, max: 320)
+            .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 320)
         } detail: {
             HSplitView {
-                PreviewPane(shot: document.shots.first(where: { $0.id == selection }), style: document.style,
-                            position: .init(index: document.shots.firstIndex(where: { $0.id == selection }) ?? 0,
-                                            count: document.shots.count),
-                            captionBand: ShotRenderer.captionBand(shots: document.shots, style: document.style),
-                            importImages: { replacing = nil; importing = true })
-                    .frame(minWidth: 280)
+                VStack(spacing: 0) {
+                    PreviewPane(shot: selectedIndex.map { document.shots[$0] }, style: document.style,
+                                position: .init(index: selectedIndex ?? 0, count: document.shots.count),
+                                captionBand: ShotRenderer.captionBand(shots: document.shots, style: document.style),
+                                importImages: { replacing = nil; importing = true })
+                    if !document.shots.isEmpty {
+                        Divider()
+                        Filmstrip(shots: document.shots, thumbnails: thumbnails, canvasAspect: canvasAspect,
+                                  selection: $selection, canImport: document.shots.count < 10,
+                                  importImages: { replacing = nil; importing = true })
+                    }
+                }
+                .frame(minWidth: 360)
                 Form {
-                    if let index = document.shots.firstIndex(where: { $0.id == selection }) {
-                        CaptionInspector(shot: $document.shots[index], style: document.style,
+                    if let index = selectedIndex {
+                        CaptionInspector(shot: $document.shots[index], position: index + 1, style: document.style,
                                          replaceImage: { replacing = selection; importing = true })
                     }
                     StyleInspector(style: $document.style)
                 }
                 .formStyle(.grouped)
-                .frame(minWidth: 270, idealWidth: 300, maxWidth: 380)
+                .frame(minWidth: 300, idealWidth: 330, maxWidth: 400)
             }
         }
         .toolbar {
             ToolbarItemGroup {
-                Picker("Output size", selection: $document.style.preset) {
-                    ForEach(OutputPreset.allCases) { Text($0.title).tag($0) }
-                }.frame(width: 170)
-                if document.style.preset != .mac {
-                    Toggle(isOn: $document.style.landscape) { Label("Landscape", systemImage: "rectangle") }
-                        .help("Use landscape output")
+                Picker(selection: $document.style.preset) {
+                    Section("iPhone") {
+                        ForEach([OutputPreset.phone69, .phone65, .phone63, .phone61, .phone55]) { Text($0.title).tag($0) }
+                    }
+                    Section("iPad") {
+                        ForEach([OutputPreset.pad13, .pad129, .pad11]) { Text($0.title).tag($0) }
+                    }
+                    Section("Mac") { Text(OutputPreset.mac.title).tag(OutputPreset.mac) }
+                } label: {
+                    Label("Output size", systemImage: document.style.preset.symbol)
                 }
-                Button { export() } label: { Label(exporting ? "Exporting…" : "Export Set…", systemImage: "square.and.arrow.up") }
-                    .disabled(document.shots.isEmpty || exporting)
+                .help("App Store screenshot size: \(document.style.dimensionLabel) pixels")
+                .frame(width: 180)
+                if document.style.preset != .mac {
+                    Toggle(isOn: $document.style.landscape) {
+                        Label("Landscape", systemImage: document.style.landscape ? "rectangle" : "rectangle.portrait")
+                    }
+                    .help(document.style.landscape ? "Landscape output. Click for portrait." : "Portrait output. Click for landscape.")
+                }
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Button { export() } label: {
+                    Label(exporting ? "Exporting…" : "Export", systemImage: "square.and.arrow.up")
+                        .labelStyle(.titleAndIcon)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(document.shots.isEmpty || exporting)
+                .help("Export every screenshot as an App Store-ready PNG")
             }
         }
+        .task(id: ThumbnailKey(shots: document.shots, style: document.style)) { await renderThumbnails() }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.png, .jpeg], allowsMultipleSelection: replacing == nil) { result in
             switch result {
             case .success(let urls): importURLs(urls)
@@ -104,6 +139,24 @@ struct EditorView: View {
         .onAppear { ensureSelection() }
         .onChange(of: document.shots.map(\.id)) { ensureSelection() }
         .frame(minWidth: 900, minHeight: 600)
+    }
+
+    /// Composed thumbnails for the sidebar and filmstrip. Re-renders when the set or style changes.
+    private func renderThumbnails() async {
+        let shots = document.shots, style = document.style
+        let band = ShotRenderer.captionBand(shots: shots, style: style)
+        var rendered: [UUID: NSImage] = [:]
+        for (index, shot) in shots.enumerated() {
+            // Yield between shots so typing stays responsive; a newer edit cancels this pass.
+            await Task.yield()
+            if Task.isCancelled { return }
+            guard let bitmap = try? ShotRenderer.render(shot: shot, style: style, maxDimension: 420,
+                                                        position: .init(index: index, count: shots.count), captionBand: band) else { continue }
+            let image = NSImage(size: bitmap.size)
+            image.addRepresentation(bitmap)
+            rendered[shot.id] = image
+        }
+        thumbnails = rendered
     }
 
     private func ensureSelection() {
@@ -148,6 +201,22 @@ struct EditorView: View {
                 do { exportedFolder = try SetExporter.export(shots: document.shots, style: document.style, parent: url) }
                 catch { message = error.localizedDescription }
             }
+        }
+    }
+}
+
+private struct ThumbnailKey: Equatable {
+    let shots: [Shot]
+    let style: SetStyle
+}
+
+extension OutputPreset {
+    var symbol: String {
+        switch self {
+        case .phone55: "iphone.gen1"
+        case .phone69, .phone65, .phone63, .phone61: "iphone"
+        case .pad13, .pad129, .pad11: "ipad"
+        case .mac: "laptopcomputer"
         }
     }
 }

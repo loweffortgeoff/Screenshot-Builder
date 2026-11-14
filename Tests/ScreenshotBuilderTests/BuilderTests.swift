@@ -79,9 +79,19 @@ struct BuilderTests {
                     var style = SetStyle()
                     style.preset = preset; style.landscape = landscape; style.layout = layout; style.frameStyle = .device
                     let c = ShotRenderer.compose(shot: shot, style: style, sourceSize: CGSize(width: 1320, height: 2868))
-                    #expect(CGRect(origin: .zero, size: style.size).contains(c.imageRect))
-                    if layout == .above { #expect(c.subtitleRect.maxY < c.imageRect.minY) }
-                    if layout == .below { #expect(c.imageRect.maxY < c.headlineRect.minY) }
+                    let canvas = CGRect(origin: .zero, size: style.size)
+                    let device = try #require(c.device)
+                    switch layout {
+                    case .above, .below, .imageOnly:
+                        #expect(canvas.contains(device.rect))
+                    case .bleedBottom:
+                        // The device runs off the bottom edge only.
+                        #expect(device.rect.maxY > canvas.maxY && device.rect.minY > 0)
+                    case .bleedTop:
+                        #expect(device.rect.minY < 0 && device.rect.maxY < canvas.maxY)
+                    }
+                    if layout.hasCaption && layout.captionOnTop { #expect(c.subtitleRect.maxY < device.rect.minY) }
+                    if layout.hasCaption && !layout.captionOnTop { #expect(device.rect.maxY < c.headlineRect.minY) }
                 }
             }
         }

@@ -14,28 +14,36 @@ struct PreviewPane: View {
             if let shot {
                 GeometryReader { proxy in
                     if let preview {
+                        let aspect = style.size.width / style.size.height
+                        let fitted = ShotRenderer.fit(CGSize(width: aspect, height: 1), in: CGRect(origin: .zero, size: proxy.size))
                         Image(nsImage: preview)
-                            .resizable().interpolation(.high).scaledToFit()
+                            .resizable().interpolation(.high)
+                            .frame(width: fitted.width, height: fitted.height)
+                            .clipShape(RoundedRectangle(cornerRadius: min(fitted.width, fitted.height) * 0.035, style: .continuous))
+                            .shadow(color: .black.opacity(0.28), radius: 18, y: 8)
                             .frame(width: proxy.size.width, height: proxy.size.height)
-                            .accessibilityLabel("Screenshot preview. \(shot.headline). \(shot.subtitle)")
+                            .accessibilityLabel("Screenshot preview. \(shot.headline.replacingOccurrences(of: "*", with: "")). \(shot.subtitle)")
                     }
                 }
-                Text(error ?? style.dimensionLabel + " pixels")
-                    .font(.caption).foregroundStyle(.secondary)
-                    .textSelection(.enabled)
+                HStack(spacing: 6) {
+                    Image(systemName: style.preset.symbol)
+                    Text(error ?? "\(style.preset.title)\(style.landscape && style.preset != .mac ? " landscape" : "") · \(style.dimensionLabel) px · Shot \(position.index + 1) of \(position.count)")
+                }
+                .font(.caption).foregroundStyle(.secondary)
+                .textSelection(.enabled)
             } else {
                 ContentUnavailableView {
-                    Label("Build your App Store set", systemImage: "photo.on.rectangle.angled")
+                    Label("Build your App Store set", systemImage: "rectangle.stack.badge.plus")
                 } description: {
-                    Text("Drop screenshots here, or import images. Add captions and choose a shared style.")
+                    Text("Drop up to 10 PNG or JPEG screenshots here. Pick a theme, frame them in a real device, and write captions that sell.")
                 } actions: {
                     Button("Import Screenshots", action: importImages).buttonStyle(.borderedProminent)
                 }
             }
         }
-        .padding(24)
+        .padding(28)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.quaternary.opacity(0.35))
+        .background(Color(nsColor: .underPageBackgroundColor))
         .task(id: PreviewKey(shot: shot, style: style, position: position, captionBand: captionBand)) {
             guard let shot else { preview = nil; return }
             do {

@@ -10,3 +10,4 @@
 - 2026-11-13: Replace the v1 "simple device frame" toggle with None, Rounded, and Device styles. Version 1 projects with the toggle on open with the Device style.
 - 2026-11-13: Size the caption band per set: tall enough for the longest caption, capped at two headline lines plus two subtitle lines. Captions sit at the top of the band, so headlines and screenshots align across the set with no dead gap. Supersedes the fixed caption-band entries.
 - 2026-11-13: Balance wrapped captions by narrowing to the smallest width that keeps the line count. Mark accent words with *asterisks* in the headline.
+- 2026-11-13: Add bleed templates that run the device off the top or bottom edge, still within the fixed-layout model (no freeform editing). Sidebar and filmstrip show composed thumbnails rendered by the shared renderer.

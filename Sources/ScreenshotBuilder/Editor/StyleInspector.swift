@@ -4,6 +4,10 @@ struct StyleInspector: View {
     @Binding var style: SetStyle
 
     var body: some View {
+        Section("Layout") {
+            LayoutPicker(layout: $style.layout)
+        }
+
         Section {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 58), spacing: 8)], spacing: 10) {
                 ForEach(Theme.all) { theme in
@@ -80,16 +84,6 @@ struct StyleInspector: View {
         }
         .disabled(style.layout == .imageOnly)
 
-        Section("Screenshot") {
-            Picker("Layout", selection: $style.layout) {
-                ForEach(CaptionLayout.allCases) { Text($0.rawValue).tag($0) }
-            }
-            LabeledContent("Size") {
-                Slider(value: $style.imageScale, in: 0.5...1, step: 0.01).frame(maxWidth: 150)
-            }
-            Toggle("Shadow", isOn: $style.shadow)
-        }
-
         Section {
             Picker("Frame", selection: $style.frameStyle) {
                 ForEach(FrameStyle.allCases) { Text($0.rawValue).tag($0) }
@@ -118,10 +112,18 @@ struct StyleInspector: View {
                         }
                     }
                 }
-                Text(current.name + " · " + spec.name).font(.caption).foregroundStyle(.secondary)
             }
+            LabeledContent("Size") {
+                Slider(value: $style.imageScale, in: 0.5...1, step: 0.01).frame(maxWidth: 150)
+            }
+            Toggle("Shadow", isOn: $style.shadow)
         } header: {
-            Text("Frame")
+            Text("Device")
+        } footer: {
+            if style.frameStyle == .device {
+                let spec = DeviceSpec.for(style.preset)
+                Text("\(spec.name), \(DeviceFinish.named(style.finish, for: spec.family).name). Drawn from Apple's measured bezel.")
+            }
         }
     }
 
