@@ -383,25 +383,6 @@ extension Shot {
             return (top, top + height)
         }
         func leadsIn(_ j: Int) -> Bool { isLeadIn(j, blocks: blocks) }
-        // A heading can also sit less than 1% below the rows above it, so it joins their block. When the band's last block
-        // ends in a short line, set off by a quiet run, that leads straight into the next block, the band stops before it.
-        func trimmingTrailingHeading(_ band: (top: CGFloat, bottom: CGFloat)) -> (top: CGFloat, bottom: CGFloat) {
-            guard let j = blocks.lastIndex(where: { $0.top < band.bottom }), j + 1 < blocks.count,
-                  blocks[j + 1].top - blocks[j].bottom < 0.035, profile.count > 1 else { return band }
-            let n = CGFloat(profile.count), level = busyLevel(profile)
-            let first = Int((blocks[j].top * n).rounded(.down)), last = min(profile.count - 1, Int((blocks[j].bottom * n).rounded(.up)) - 1)
-            guard first < last else { return band }
-            // Walk up from the block's last row: the final line, then the quiet run above it.
-            var row = last
-            while row > first && profile[row] > level { row -= 1 }
-            let lineTop = row + 1
-            var gapTop = row
-            while gapTop > first && profile[gapTop] <= level { gapTop -= 1 }
-            let line = CGFloat(last + 1 - lineTop) / n, gap = CGFloat(row - gapTop) / n
-            guard line < 0.025, gap >= 0.004, gapTop > first else { return band }
-            let cut = (CGFloat(gapTop + 1) / n + CGFloat(lineTop) / n) / 2
-            return cut - band.top >= minHeight ? (band.top, cut) : band
-        }
         var best: (band: (top: CGFloat, bottom: CGFloat), distance: CGFloat, spread: CGFloat)?
         for i in first...last {
             for j in i...last {
@@ -412,8 +393,10 @@ extension Shot {
                 if best == nil || (distance, spread) < (best!.distance, best!.spread) { best = (band, distance, spread) }
             }
         }
-        if let best { return trimmingTrailingHeading(best.band) }
-        let near = usable.min { abs((blocks[$0].top + blocks[$0].bottom) / 2 - target) < abs((blocks[$1].top + blocks[$1].bottom) / 2 - target) }!
+        if let best { return best.band }
+        // The fallback skips headings too, unless the screen has nothing else.
+        let candidates = usable.filter { !leadsIn($0) }.isEmpty ? usable : usable.filter { !leadsIn($0) }
+        let near = candidates.min { abs((blocks[$0].top + blocks[$0].bottom) / 2 - target) < abs((blocks[$1].top + blocks[$1].bottom) / 2 - target) }!
         let block = blocks[near], center = (block.top + block.bottom) / 2
         if block.bottom - block.top <= maxHeight {
             // Too short for any fit: widen toward the minimum without crossing into a neighbouring block.

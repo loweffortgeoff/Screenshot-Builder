@@ -389,6 +389,33 @@ struct ChapterFourTests {
         #expect(grown.map { $0.bottom < 0.43 && $0.top < 0.285 } == true, "\(String(describing: grown))")
     }
 
+    /// A 1024-row profile with busy rows in each unit range.
+    private func profile(_ ranges: [(Double, Double)]) -> [Float] {
+        var p = [Float](repeating: 0, count: 1024)
+        for (a, b) in ranges { for r in Int(a * 1024)..<Int(b * 1024) { p[r] = 10 } }
+        return p
+    }
+
+    @Test func zoomCropFallbackSkipsAHeading() throws {
+        // Nothing fits 0.10 to 0.24: a heading above a block 0.30 tall. The target sits on the heading.
+        let blocks = [ContentBlock(top: 0.30, bottom: 0.315), ContentBlock(top: 0.33, bottom: 0.63)]
+        let band = Shot.cropBand(blocks: blocks, profile: [Float](repeating: 0, count: 1000), target: 0.31, maxHeight: 0.24)
+        #expect(band.top >= 0.315, "the band comes from the rows, not the heading alone: \(band)")
+    }
+
+    @Test func zoomCropKeepsEachRowsDetailLine() throws {
+        // Two-line rows: a title, a 0.6% gap, a detail line, then 2.5% to the next row. No band may cut a row.
+        var rows: [(Double, Double)] = []
+        var y = 0.30
+        while y < 0.70 { rows += [(y, y + 0.012), (y + 0.018, y + 0.027)]; y += 0.052 }
+        let p = profile(rows)
+        let blocks = Shot.contentBlocks(profile: p)
+        for target in stride(from: 0.40, through: 0.60, by: 0.01) {
+            let band = Shot.cropBand(blocks: blocks, profile: p, target: target, maxHeight: 0.24)
+            #expect(!blocks.contains { $0.top < band.bottom - 0.001 && $0.bottom > band.bottom + 0.001 }, "target \(target): \(band)")
+        }
+    }
+
     @Test func zoomCardTakesAThemeTintAndASofterShadow() throws {
         for theme in Theme.all {
             let tint = ShotRenderer.cardTint(theme.accent)
