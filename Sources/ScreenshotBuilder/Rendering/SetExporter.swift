@@ -11,10 +11,11 @@ enum SetExporter {
         }
         let folder = parent.appendingPathComponent("Screenshots-\(Int(style.size.width))x\(Int(style.size.height))-\(UUID().uuidString.prefix(8))", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false)
+        let band = ShotRenderer.captionBand(shots: shots, style: style)
         do {
             for (index, shot) in shots.enumerated() {
                 let bitmap = try ShotRenderer.render(shot: shot, style: style,
-                                                     position: .init(index: index, count: shots.count))
+                                                     position: .init(index: index, count: shots.count), captionBand: band)
                 guard let png = bitmap.representation(using: .png, properties: [:]) else {
                     throw BuilderError.message("Could not encode shot \(index + 1).")
                 }

@@ -4,6 +4,7 @@ struct PreviewPane: View {
     let shot: Shot?
     let style: SetStyle
     var position = ShotRenderer.SetPosition.single
+    var captionBand: CGFloat?
     let importImages: () -> Void
     @State private var preview: NSImage?
     @State private var error: String?
@@ -35,10 +36,10 @@ struct PreviewPane: View {
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.quaternary.opacity(0.35))
-        .task(id: PreviewKey(shot: shot, style: style, position: position)) {
+        .task(id: PreviewKey(shot: shot, style: style, position: position, captionBand: captionBand)) {
             guard let shot else { preview = nil; return }
             do {
-                let bitmap = try ShotRenderer.render(shot: shot, style: style, maxDimension: 1500, position: position)
+                let bitmap = try ShotRenderer.render(shot: shot, style: style, maxDimension: 1500, position: position, captionBand: captionBand)
                 let image = NSImage(size: bitmap.size)
                 image.addRepresentation(bitmap)
                 preview = image
@@ -52,4 +53,5 @@ private struct PreviewKey: Equatable {
     let shot: Shot?
     let style: SetStyle
     let position: ShotRenderer.SetPosition
+    let captionBand: CGFloat?
 }

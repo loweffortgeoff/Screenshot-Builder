@@ -146,6 +146,7 @@ struct BuilderTests {
         #expect(loaded.style.accent == loaded.style.foreground)
         #expect(!loaded.style.shadow)
         #expect(loaded.style.frameStyle == .device)
+        #expect(loaded.style.weight == .bold)
         #expect(loaded.shots.first?.headline == "Hi")
     }
 
@@ -230,5 +231,58 @@ struct BuilderTests {
             #expect(!DeviceFinish.all(for: spec.family).isEmpty)
             #expect(DeviceFinish.named("Nonexistent", for: spec.family) == DeviceFinish.all(for: spec.family)[0])
         }
+    }
+
+    @Test func accentMarkupColorsWrappedWords() {
+        var style = SetStyle()
+        style.foreground = RGBColor(1, 1, 1)
+        style.accent = RGBColor(1, 0, 0)
+        let text = ShotRenderer.headlineText("Plan *every* trip", style: style, size: 100)
+        #expect(text.string == "Plan every trip")
+        let plain = text.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor
+        let accent = text.attribute(.foregroundColor, at: 6, effectiveRange: nil) as? NSColor
+        #expect(plain == style.foreground.nsColor)
+        #expect(accent == style.accent.nsColor)
+    }
+
+    @Test func wrappedHeadlinesBalanceWithoutAddingLines() {
+        let style = SetStyle()
+        let text = ShotRenderer.headlineText("See where your money goes", style: style, size: 108)
+        let width: CGFloat = 1160
+        let balanced = ShotRenderer.balancedWidth(text, maxWidth: width)
+        #expect(balanced < width * 0.9)
+        func height(_ w: CGFloat) -> CGFloat {
+            text.boundingRect(with: CGSize(width: w, height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin, .usesFontLeading]).height
+        }
+        #expect(abs(height(balanced) - height(width)) < 1)
+        let short = ShotRenderer.headlineText("Short", style: style, size: 108)
+        #expect(ShotRenderer.balancedWidth(short, maxWidth: width) == width)
+    }
+
+    @Test func setCaptionBandFitsLongestCaptionAndAlignsShots() throws {
+        var short = try fixture()
+        short.headline = "Short"
+        short.subtitle = ""
+        var long = try fixture()
+        long.headline = "A longer headline that wraps"
+        let style = SetStyle()
+        let band = ShotRenderer.captionBand(shots: [short, long], style: style)
+        #expect(band <= ShotRenderer.CaptionMetrics(style: style).maxBand)
+        #expect(band > ShotRenderer.captionBand(shots: [short], style: style))
+        let source = CGSize(width: 1320, height: 2868)
+        let a = ShotRenderer.compose(shot: short, style: style, sourceSize: source, captionBand: band)
+        let b = ShotRenderer.compose(shot: long, style: style, sourceSize: source, captionBand: band)
+        #expect(a.imageRect == b.imageRect)
+        #expect(a.headlineRect.minY == b.headlineRect.minY)
+        #expect(b.subtitleRect.maxY <= b.imageRect.minY)
+    }
+
+    @Test func everyCaptionFontResolves() {
+        for font in CaptionFont.allCases {
+            for weight in CaptionWeight.allCases {
+                #expect(font.font(size: 40, weight: weight.nsWeight).pointSize == 40)
+            }
+        }
+        #expect(CaptionFont.rounded.font(size: 40, weight: .heavy).fontName.contains("Rounded"))
     }
 }

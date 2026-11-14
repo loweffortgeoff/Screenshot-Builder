@@ -35,19 +35,21 @@ struct SampleRenderTests {
             let url = samples.appendingPathComponent(String(format: "%02d.png", index + 1))
             guard FileManager.default.fileExists(atPath: url.path) else { continue }
             var shot = try Shot.importing(url)
-            // Accent markup arrives in M3; strip it until the renderer understands it.
-            shot.headline = caption.0.replacingOccurrences(of: "*", with: "")
+            shot.headline = caption.0
             shot.subtitle = caption.1
             document.shots.append(shot)
         }
         try #require(!document.shots.isEmpty)
+        if let raw = env["SB_ALIGN"], let value = CaptionAlignment(rawValue: raw) { document.style.alignment = value }
+        if let raw = env["SB_FONT"], let value = CaptionFont(rawValue: raw) { document.style.font = value }
+        let band = ShotRenderer.captionBand(shots: document.shots, style: document.style)
         var tiles: [NSBitmapImageRep] = []
         for (index, shot) in document.shots.enumerated() {
             let position = ShotRenderer.SetPosition(index: index, count: document.shots.count)
-            let bitmap = try ShotRenderer.render(shot: shot, style: document.style, position: position)
+            let bitmap = try ShotRenderer.render(shot: shot, style: document.style, position: position, captionBand: band)
             let png = try #require(bitmap.representation(using: .png, properties: [:]))
             try png.write(to: out.appendingPathComponent(String(format: "export-%02d.png", index + 1)))
-            tiles.append(try ShotRenderer.render(shot: shot, style: document.style, maxDimension: 900, position: position))
+            tiles.append(try ShotRenderer.render(shot: shot, style: document.style, maxDimension: 900, position: position, captionBand: band))
         }
         try contactSheet(tiles).write(to: out.appendingPathComponent("set.png"))
         try JSONEncoder().encode(document).write(to: out.appendingPathComponent("Sample.shotset"))

@@ -7,13 +7,51 @@ enum CaptionLayout: String, Codable, CaseIterable, Identifiable {
 }
 
 enum CaptionFont: String, Codable, CaseIterable, Identifiable {
-    case system = "System", rounded = "Rounded", serif = "Serif"
+    case system = "System", rounded = "Rounded", serif = "Serif", condensed = "Condensed"
+    case avenir = "Avenir Next", futura = "Futura", helvetica = "Helvetica Neue", georgia = "Georgia"
     var id: Self { self }
-    func font(size: CGFloat, bold: Bool) -> NSFont {
-        let base = NSFont.systemFont(ofSize: size, weight: bold ? .bold : .regular)
-        let design: NSFontDescriptor.SystemDesign = self == .rounded ? .rounded : self == .serif ? .serif : .default
-        return base.fontDescriptor.withDesign(design).flatMap { NSFont(descriptor: $0, size: size) } ?? base
+
+    /// Fonts ship with macOS; nothing is bundled. Missing families fall back to the system font.
+    func font(size: CGFloat, weight: NSFont.Weight) -> NSFont {
+        let system = NSFont.systemFont(ofSize: size, weight: weight)
+        switch self {
+        case .system:
+            return system
+        case .rounded, .serif:
+            let design: NSFontDescriptor.SystemDesign = self == .rounded ? .rounded : .serif
+            return system.fontDescriptor.withDesign(design).flatMap { NSFont(descriptor: $0, size: size) } ?? system
+        case .condensed:
+            return NSFont.systemFont(ofSize: size, weight: weight, width: .condensed)
+        case .avenir, .futura, .helvetica, .georgia:
+            let descriptor = NSFontDescriptor(fontAttributes: [.family: rawValue, .traits: [NSFontDescriptor.TraitKey.weight: weight]])
+            guard let font = NSFont(descriptor: descriptor, size: size), font.familyName == rawValue else { return system }
+            return font
+        }
     }
+}
+
+extension CaptionFont {
+    static func lineHeight(_ font: NSFont) -> CGFloat { ceil(font.ascender - font.descender + font.leading) }
+}
+
+enum CaptionWeight: String, Codable, CaseIterable, Identifiable {
+    case semibold = "Semibold", bold = "Bold", heavy = "Heavy", black = "Black"
+    var id: Self { self }
+    var nsWeight: NSFont.Weight {
+        switch self { case .semibold: .semibold; case .bold: .bold; case .heavy: .heavy; case .black: .black }
+    }
+}
+
+enum CaptionSize: String, Codable, CaseIterable, Identifiable {
+    case small = "S", medium = "M", large = "L"
+    var id: Self { self }
+    var scale: CGFloat { switch self { case .small: 0.84; case .medium: 1; case .large: 1.18 } }
+}
+
+enum CaptionAlignment: String, Codable, CaseIterable, Identifiable {
+    case center = "Center", leading = "Left"
+    var id: Self { self }
+    var nsAlignment: NSTextAlignment { self == .center ? .center : .left }
 }
 
 struct RGBColor: Codable, Equatable {
@@ -36,7 +74,10 @@ struct SetStyle: Codable, Equatable {
     var preset: OutputPreset = .phone69
     var landscape = false
     var layout: CaptionLayout = .above
-    var font: CaptionFont = .rounded
+    var font: CaptionFont = .system
+    var weight: CaptionWeight = .heavy
+    var textSize: CaptionSize = .medium
+    var alignment: CaptionAlignment = .center
     var background = Theme.all[1].background
     var foreground = Theme.all[1].foreground
     var accent = Theme.all[1].accent
@@ -77,6 +118,9 @@ struct SetStyle: Codable, Equatable {
         landscape = try c.decodeIfPresent(Bool.self, forKey: .landscape) ?? d.landscape
         layout = try c.decodeIfPresent(CaptionLayout.self, forKey: .layout) ?? d.layout
         font = try c.decodeIfPresent(CaptionFont.self, forKey: .font) ?? d.font
+        weight = try c.decodeIfPresent(CaptionWeight.self, forKey: .weight) ?? .bold // Version 1 drew bold headlines.
+        textSize = try c.decodeIfPresent(CaptionSize.self, forKey: .textSize) ?? d.textSize
+        alignment = try c.decodeIfPresent(CaptionAlignment.self, forKey: .alignment) ?? d.alignment
         if let fill = try? c.decode(Background.self, forKey: .background) {
             background = fill
         } else if let legacy = try c.decodeIfPresent(RGBColor.self, forKey: .background) {

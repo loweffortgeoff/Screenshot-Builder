@@ -30,24 +30,67 @@ enum ShotRenderer {
         return CGRect(x: box.midX - size.width / 2, y: box.midY - size.height / 2, width: size.width, height: size.height)
     }
 
-    static func compose(shot: Shot, style: SetStyle, sourceSize: CGSize) -> Composition {
+    /// Caption type, scaled from the shorter canvas edge.
+    struct CaptionMetrics {
+        var margin: CGFloat
+        var textWidth: CGFloat
+        var headSize: CGFloat
+        var subSize: CGFloat
+        var gap: CGFloat
+        var separation: CGFloat
+        var maxBand: CGFloat
+        init(style: SetStyle) {
+            let size = style.size
+            let unit = min(size.width, size.height)
+            margin = unit * 0.06
+            // Long lines read poorly on wide canvases; cap the measure.
+            textWidth = min(size.width - margin * 2, unit * 1.2)
+            headSize = unit * 0.082 * style.textSize.scale
+            subSize = unit * 0.040 * style.textSize.scale
+            gap = unit * 0.022 * style.textSize.scale
+            separation = unit * 0.055
+            // Room for two headline lines and two subtitle lines.
+            let head = CaptionFont.lineHeight(style.font.font(size: headSize, weight: style.weight.nsWeight)) * 0.96
+            let sub = CaptionFont.lineHeight(style.font.font(size: subSize, weight: .medium)) * 1.08
+            maxBand = head * 2 + gap + sub * 2
+        }
+    }
+
+    /// The caption band shared by a whole set: tall enough for its longest caption, never above two plus two lines.
+    /// A shared band keeps every headline and screenshot at the same height across the set.
+    static func captionBand(shots: [Shot], style: SetStyle) -> CGFloat {
+        let metrics = CaptionMetrics(style: style)
+        let needed = shots.map { captionHeight(shot: $0, style: style, metrics: metrics).total }.max() ?? 0
+        return min(max(needed, 1), metrics.maxBand)
+    }
+
+    private static func captionHeight(shot: Shot, style: SetStyle, metrics: CaptionMetrics)
+        -> (head: CGFloat, sub: CGFloat, headWidth: CGFloat, subWidth: CGFloat, total: CGFloat) {
+        let headline = headlineText(shot.headline, style: style, size: metrics.headSize)
+        let subtitle = subtitleText(shot.subtitle, style: style, size: metrics.subSize)
+        let headWidth = balancedWidth(headline, maxWidth: metrics.textWidth)
+        let subWidth = balancedWidth(subtitle, maxWidth: metrics.textWidth)
+        let head = shot.headline.isEmpty ? 0 : measuredHeight(headline, width: headWidth)
+        let sub = shot.subtitle.isEmpty ? 0 : measuredHeight(subtitle, width: subWidth)
+        let gap = head > 0 && sub > 0 ? metrics.gap : 0
+        return (head, sub, headWidth, subWidth, head + gap + sub)
+    }
+
+    static func compose(shot: Shot, style: SetStyle, sourceSize: CGSize, captionBand: CGFloat? = nil) -> Composition {
         let size = style.size
-        let unit = min(size.width, size.height)
-        let margin = unit * 0.045
-        let textWidth = size.width - margin * 2
+        let metrics = CaptionMetrics(style: style)
+        let margin = metrics.margin
         let hasCaption = style.layout != .imageOnly
-        // Canvas type scales with output pixels. Editor controls use semantic SwiftUI fonts.
-        let headline = attributed(shot.headline, style: style, size: unit * 0.075, bold: true)
-        let subtitle = attributed(shot.subtitle, style: style, size: unit * 0.036, bold: false)
-        let headHeight = shot.headline.isEmpty ? 0 : measuredHeight(headline, width: textWidth)
-        let subHeight = shot.subtitle.isEmpty ? 0 : measuredHeight(subtitle, width: textWidth)
-        let gap = headHeight > 0 && subHeight > 0 ? unit * 0.018 : 0
-        let needed = headHeight + subHeight + gap
-        let maxCaption = min(size.height * 0.22, unit * 0.30)
-        let captionHeight = hasCaption ? maxCaption : 0
-        let separation = hasCaption ? unit * 0.025 : 0
-        let imageArea = CGRect(x: margin, y: margin + (style.layout == .above ? captionHeight + separation : 0),
-                               width: textWidth, height: size.height - 2 * margin - captionHeight - separation)
+        let headline = headlineText(shot.headline, style: style, size: metrics.headSize)
+        let subtitle = subtitleText(shot.subtitle, style: style, size: metrics.subSize)
+        let caption = captionHeight(shot: shot, style: style, metrics: metrics)
+        let needed = caption.total
+        let captionHeight = hasCaption ? (captionBand ?? metrics.maxBand) : 0
+        let separation = hasCaption ? metrics.separation : 0
+        let top = margin * 1.25
+        let imageArea = CGRect(x: margin, y: top + (style.layout == .above ? captionHeight + separation : 0),
+                               width: size.width - margin * 2,
+                               height: size.height - top - margin - captionHeight - separation)
         let available = imageArea.insetBy(dx: imageArea.width * (1 - style.imageScale) / 2,
                                           dy: imageArea.height * (1 - style.imageScale) / 2)
         let spec = DeviceSpec.for(style.preset)
@@ -70,19 +113,26 @@ enum ShotRenderer {
             rect = Self.fit(sourceSize, in: available)
         }
         let fit = rect.width / sourceSize.width
-        let captionTop = style.layout == .below ? size.height - margin - captionHeight : margin
-        let textY = captionTop + max(0, (captionHeight - needed) / 2)
+        // Captions sit at the top of the band, so headlines line up across the set.
+        let captionTop = style.layout == .below ? size.height - margin * 1.6 - captionHeight : top
+        let textY = captionTop
+        let textWidth = metrics.textWidth
         var warnings: [String] = []
-        if hasCaption && needed > maxCaption { warnings.append("Caption is too long. Shorten the headline or subtitle before export.") }
+        if hasCaption && needed > metrics.maxBand + 0.5 { warnings.append("Caption is too long. Shorten the headline or subtitle before export.") }
         if hasCaption && [headline, subtitle].contains(where: { text in
-            text.string.split(whereSeparator: { $0.isWhitespace }).contains { word in
+            text.length > 0 && text.string.split(whereSeparator: { $0.isWhitespace }).contains { word in
                 NSAttributedString(string: String(word), attributes: text.attributes(at: 0, effectiveRange: nil)).size().width > textWidth
             }
         }) { warnings.append("A caption word is too wide. Add a space or use a shorter word.") }
         if fit > 1.001 { warnings.append("Source image is smaller than its export area. It may look soft.") }
+        func textRect(width: CGFloat, y: CGFloat, height: CGFloat) -> CGRect {
+            let x = style.alignment == .center ? (size.width - width) / 2 : (size.width - textWidth) / 2
+            return CGRect(x: x, y: y, width: width, height: height)
+        }
+        let gap = caption.head > 0 && caption.sub > 0 ? metrics.gap : 0
         return Composition(imageRect: rect,
-                           headlineRect: CGRect(x: margin, y: textY, width: textWidth, height: headHeight),
-                           subtitleRect: CGRect(x: margin, y: textY + headHeight + gap, width: textWidth, height: subHeight),
+                           headlineRect: textRect(width: caption.headWidth, y: textY, height: caption.head),
+                           subtitleRect: textRect(width: caption.subWidth, y: textY + caption.head + gap, height: caption.sub),
                            headline: headline, subtitle: subtitle, warnings: warnings,
                            device: device, cornerRadius: cornerRadius)
     }
@@ -93,7 +143,7 @@ enum ShotRenderer {
     }
 
     static func render(shot: Shot, style: SetStyle, maxDimension: CGFloat? = nil,
-                       position: SetPosition = .single) throws -> NSBitmapImageRep {
+                       position: SetPosition = .single, captionBand: CGFloat? = nil) throws -> NSBitmapImageRep {
         guard let source = shot.cgImage else { throw BuilderError.message("Cannot read \(shot.name).") }
         let size = style.size
         let scale = maxDimension.map { min(1, $0 / max(size.width, size.height)) } ?? 1
@@ -112,7 +162,8 @@ enum ShotRenderer {
         cg.translateBy(x: 0, y: CGFloat(height))
         cg.scaleBy(x: CGFloat(width) / size.width, y: -CGFloat(height) / size.height)
         drawBackground(style.background, in: cg, size: size, position: style.spanSet ? position : .single)
-        let composition = compose(shot: shot, style: style, sourceSize: CGSize(width: source.width, height: source.height))
+        let composition = compose(shot: shot, style: style, sourceSize: CGSize(width: source.width, height: source.height),
+                                  captionBand: captionBand)
         let image = NSImage(cgImage: source, size: CGSize(width: source.width, height: source.height))
         let drawCapture = {
             image.draw(in: composition.imageRect, from: .zero, operation: .sourceOver, fraction: 1,
@@ -204,12 +255,50 @@ enum ShotRenderer {
         }
     }
 
-    private static func attributed(_ text: String, style: SetStyle, size: CGFloat, bold: Bool) -> NSAttributedString {
+    /// Headline text. Words wrapped in *asterisks* take the accent color.
+    static func headlineText(_ text: String, style: SetStyle, size: CGFloat) -> NSAttributedString {
+        let font = style.font.font(size: size, weight: style.weight.nsWeight)
+        let output = NSMutableAttributedString()
+        let base = attributes(style: style, font: font, color: style.foreground.nsColor, lineHeight: 0.96)
+        for (index, part) in text.components(separatedBy: "*").enumerated() where !part.isEmpty {
+            var attrs = base
+            if index % 2 == 1 { attrs[.foregroundColor] = style.accent.nsColor }
+            output.append(NSAttributedString(string: part, attributes: attrs))
+        }
+        // Tight tracking suits display sizes.
+        output.addAttribute(.kern, value: -size * 0.012, range: NSRange(location: 0, length: output.length))
+        return output
+    }
+
+    static func subtitleText(_ text: String, style: SetStyle, size: CGFloat) -> NSAttributedString {
+        let font = style.font.font(size: size, weight: .medium)
+        return NSAttributedString(string: text.replacingOccurrences(of: "*", with: ""),
+                                  attributes: attributes(style: style, font: font,
+                                                         color: style.foreground.nsColor.withAlphaComponent(0.82), lineHeight: 1.08))
+    }
+
+    private static func attributes(style: SetStyle, font: NSFont, color: NSColor, lineHeight: CGFloat) -> [NSAttributedString.Key: Any] {
         let paragraph = NSMutableParagraphStyle()
-        paragraph.alignment = .center
+        paragraph.alignment = style.alignment.nsAlignment
         paragraph.lineBreakMode = .byWordWrapping
-        return NSAttributedString(string: text, attributes: [.font: style.font.font(size: size, bold: bold),
-            .foregroundColor: style.foreground.nsColor, .paragraphStyle: paragraph])
+        let natural = CaptionFont.lineHeight(font)
+        paragraph.minimumLineHeight = natural * lineHeight
+        paragraph.maximumLineHeight = natural * lineHeight
+        return [.font: font, .foregroundColor: color, .paragraphStyle: paragraph]
+    }
+
+    /// Narrowest width that keeps the same line count, so lines balance and no word sits alone.
+    static func balancedWidth(_ text: NSAttributedString, maxWidth: CGFloat) -> CGFloat {
+        guard text.length > 0 else { return maxWidth }
+        let target = measuredHeight(text, width: maxWidth)
+        let single = measuredHeight(NSAttributedString(string: "X", attributes: text.attributes(at: 0, effectiveRange: nil)), width: maxWidth)
+        guard target > single * 1.5 else { return maxWidth }
+        var low = maxWidth * 0.4, high = maxWidth
+        for _ in 0..<14 {
+            let mid = (low + high) / 2
+            if measuredHeight(text, width: mid) > target + 0.5 { low = mid } else { high = mid }
+        }
+        return min(maxWidth, high + 2)
     }
     private static func measuredHeight(_ text: NSAttributedString, width: CGFloat) -> CGFloat {
         ceil(text.boundingRect(with: CGSize(width: width, height: .greatestFiniteMagnitude),

@@ -49,12 +49,34 @@ struct StyleInspector: View {
             }
         }
 
-        Section("Text") {
+        Section {
             Picker("Font", selection: $style.font) {
-                ForEach(CaptionFont.allCases) { Text($0.rawValue).tag($0) }
+                ForEach(CaptionFont.allCases) { font in
+                    Text(font.rawValue).font(Font(font.font(size: 13, weight: .semibold))).tag(font)
+                }
+            }
+            Picker("Weight", selection: $style.weight) {
+                ForEach(CaptionWeight.allCases) { Text($0.rawValue).tag($0) }
+            }
+            LabeledContent("Size") {
+                Picker("Size", selection: $style.textSize) {
+                    ForEach(CaptionSize.allCases) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.segmented).labelsHidden().frame(maxWidth: 150)
+            }
+            LabeledContent("Alignment") {
+                Picker("Alignment", selection: $style.alignment) {
+                    Image(systemName: "text.aligncenter").tag(CaptionAlignment.center)
+                    Image(systemName: "text.alignleft").tag(CaptionAlignment.leading)
+                }
+                .pickerStyle(.segmented).labelsHidden().frame(maxWidth: 100)
             }
             ColorPicker("Text color", selection: color(\.foreground), supportsOpacity: false)
             ColorPicker("Accent color", selection: color(\.accent), supportsOpacity: false)
+        } header: {
+            Text("Text")
+        } footer: {
+            Text(verbatim: "Wrap words in *asterisks* to color them with the accent.")
         }
         .disabled(style.layout == .imageOnly)
 

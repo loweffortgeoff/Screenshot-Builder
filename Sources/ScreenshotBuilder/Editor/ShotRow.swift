@@ -15,7 +15,7 @@ struct ShotRow: View {
             }
             VStack(alignment: .leading, spacing: 4) {
                 Text("Shot \(position)").font(.caption).foregroundStyle(.secondary)
-                Text(headline.isEmpty ? name : headline).font(.body).fixedSize(horizontal: false, vertical: true)
+                Text(headline.isEmpty ? name : headline.replacingOccurrences(of: "*", with: "")).font(.body).fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(.vertical, 6)
