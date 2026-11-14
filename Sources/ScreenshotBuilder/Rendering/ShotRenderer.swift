@@ -174,7 +174,8 @@ enum ShotRenderer {
             headLines = 2
             switch composition {
             case .stacked, .bigNumber:
-                break
+                // 1 everywhere except a Stacked group that holds a Lead shot (see `leadHeadScale`).
+                headFactor = headScale
             case .sideBySide:
                 textWidth = min(textWidth, size.width * Self.sideMeasure)
                 headFactor = Self.sideHeadFactor * headScale
@@ -278,6 +279,7 @@ enum ShotRenderer {
     /// without a split word (and, for Text only, the whole block fits the canvas), so the group shares one size. Other
     /// compositions keep their size.
     private static func headScale(for shots: [Shot], style: SetStyle, composition: CaptionComposition) -> CGFloat {
+        if composition == .stacked && shots.contains(where: style.isLead) { return leadHeadScale(for: shots, style: style) }
         guard composition == .sideBySide || composition == .textOnly else { return 1 }
         // These sizes are bigger than the old ones, so the steps run further down to keep every headline that fit before.
         let steps: [CGFloat] = composition == .textOnly
@@ -292,6 +294,23 @@ enum ShotRenderer {
                 let badge = shot.badge.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0 : badgeRowHeight(metrics)
                 let total = captionHeight(shot: shot, style: style, metrics: metrics, lines: nil).total + badge
                 return total <= style.size.height * 0.84
+            }
+            if fits { return scale }
+        }
+        return steps[steps.count - 1]
+    }
+
+    /// Lead replaced portrait Side by side, which shrank long headlines to fit. A Stacked group that holds a Lead shot
+    /// does the same: its shared headline size steps down until every caption in the group fits, so a version 4 file
+    /// that exported before still exports. Groups whose captions fit keep the full size.
+    private static func leadHeadScale(for shots: [Shot], style: SetStyle) -> CGFloat {
+        let steps: [CGFloat] = [1, 0.92, 0.85, 0.78, 0.72, 0.66, 0.6]
+        for scale in steps {
+            let metrics = CaptionMetrics(style: style, composition: .stacked, headScale: scale)
+            let fits = shots.allSatisfy { shot in
+                let text = headlineText(shot.headline, accents: shot.accents, style: style, size: metrics.headSize)
+                return !hasWord(widerThan: metrics.textWidth, in: text)
+                    && captionHeight(shot: shot, style: style, metrics: metrics, lines: nil).total <= metrics.maxText + 0.5
             }
             if fits { return scale }
         }

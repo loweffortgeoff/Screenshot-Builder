@@ -20,6 +20,30 @@ struct ChapterFourTests {
                     headline: headline, subtitle: "A clear subtitle")
     }
 
+    // MARK: Lead
+
+    @Test func leadStepsDownALongHeadlineSoTheShotStillExports() throws {
+        var long = try fixture("Beautifully organized notifications for everything you save")
+        long.composition = .sideBySide
+        long.badge = "New"
+        let short = try fixture("Short")
+        let style = SetStyle()
+        let band = ShotRenderer.captionBand(shots: [long, short], style: style)
+        let group = try #require(band.group(for: .stacked))
+        #expect(group.headScale < 1, "the Stacked group with a long Lead headline steps down")
+        for shot in [long, short] {
+            let c = ShotRenderer.compose(shot: shot, style: style, sourceSize: phoneSource, captionBand: band)
+            #expect(c.warnings.isEmpty, "\(shot.headline): \(c.warnings)")
+        }
+        // A group that fits, or one with no Lead shot, keeps the full size.
+        var fitting = try fixture("Your list, sorted by aisle")
+        fitting.composition = .sideBySide
+        #expect(ShotRenderer.captionBand(shots: [fitting, short], style: style).group(for: .stacked)?.headScale == 1)
+        var plain = long
+        plain.composition = nil
+        #expect(ShotRenderer.captionBand(shots: [plain, short], style: style).group(for: .stacked)?.headScale == 1)
+    }
+
     // MARK: Decorations
 
     @Test func eyebrowLabelPerMode() throws {
