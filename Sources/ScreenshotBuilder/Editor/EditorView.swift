@@ -237,7 +237,7 @@ struct EditorView: View {
     /// The selected shot's arrangement controls, placed by the Style tab under Layout.
     private var arrangementInspector: AnyView? {
         guard let index = selectedIndex else { return nil }
-        return AnyView(ArrangementInspector(shot: $document.shots[index], position: index + 1,
+        return AnyView(ArrangementInspector(shot: $document.shots[index], position: index + 1, style: document.style,
                                             others: otherShots(excluding: index)))
     }
 

@@ -149,8 +149,10 @@ struct StyleInspector: View {
                 }
             }
             .padding(.vertical, 2)
-            Picker("Frame", selection: $style.frameStyle) {
-                ForEach(FrameStyle.allCases) { Text($0.rawValue).tag($0) }
+            // Window only is a Mac look; other presets draw it as Rounded, so they show Rounded selected.
+            Picker("Frame", selection: Binding(get: { style.preset != .mac && style.frameStyle == .windowOnly ? .rounded : style.frameStyle },
+                                               set: { style.frameStyle = $0 })) {
+                ForEach(FrameStyle.allCases.filter { $0 != .windowOnly || style.preset == .mac }) { Text($0.rawValue).tag($0) }
             }
             .pickerStyle(.segmented)
             .labelsHidden()
@@ -203,7 +205,8 @@ struct StyleInspector: View {
         case .device: "\(DeviceFinish.named(style.finish, for: spec.family).name). Drawn from Apple's measured bezel."
         case .rounded: "Screenshot with rounded corners, no device."
         case .none: "Screenshot as captured, no frame."
-        case .windowOnly: "Mac window with its own corners and shadow, no laptop."
+        case .windowOnly: style.preset == .mac ? "Mac window with its own corners and shadow, no laptop."
+                                               : "Screenshot with rounded corners, no device."
         }
     }
 
