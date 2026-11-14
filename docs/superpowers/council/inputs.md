@@ -34,7 +34,7 @@ Build every input from one frozen SHA. Record the SHA with the scores.
 | `set-compositions.png` | iPhone set mixing Side by side, Big number, Stacked + Zoom, Overlay, and Text only. |
 | `export-zoom-ch3.png` | Full-size Zoom single with the spotlight marker and lens connector. |
 | `export-mac-window.png` | Mac export in the Window only frame. |
-| `export-mac-display.png` | Mac export of the 3440 × 1440 display capture in Fill screen. |
+| `export-mac-display.png` | Mac export of the 3440 × 1440 display capture in Fill screen. The capture is Geoff's real full-screen desktop, fixed input: the light strip at the top is its own menu bar, and the light band at the bottom is its desktop wallpaper below the app window. |
 
 ## Commands
 
