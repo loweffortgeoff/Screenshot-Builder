@@ -35,6 +35,14 @@ struct DeviceFrame {
 
     /// The screen opening on the canvas.
     var screenRect: CGRect { screenLocal.applying(transform) }
+    /// Where the capture goes. On a laptop it sits below the camera notch, like the menu bar area.
+    var contentRect: CGRect {
+        guard spec.family == .laptop, let notch = spec.island else { return screenRect }
+        var local = screenLocal
+        local.origin.y += notch.height + spec.islandTopGap
+        local.size.height -= notch.height + spec.islandTopGap
+        return local.applying(transform)
+    }
     var screenPath: CGPath {
         var t = transform
         return CGPath(roundedRect: screenLocal, cornerWidth: spec.screenRadius, cornerHeight: spec.screenRadius, transform: &t)
@@ -127,6 +135,21 @@ struct DeviceFrame {
             let glass = body.insetBy(dx: band + 2, dy: band + 2)
             cg.addPath(CGPath(roundedRect: glass, cornerWidth: spec.bodyRadius - band - 2, cornerHeight: spec.bodyRadius - band - 2, transform: nil))
             cg.setFillColor(color(RGBColor(0.02, 0.02, 0.02))); cg.fillPath()
+            // Polished rim: a thin specular line lit from the top left.
+            cg.saveGState()
+            cg.addPath(CGPath(roundedRect: body.insetBy(dx: band * 0.3, dy: band * 0.3),
+                              cornerWidth: spec.bodyRadius - band * 0.3, cornerHeight: spec.bodyRadius - band * 0.3, transform: nil))
+            cg.setLineWidth(max(2, band * 0.16))
+            cg.replacePathWithStrokedPath()
+            cg.clip()
+            let white = RGBColor(1, 1, 1)
+            if let sheen = CGGradient(colorsSpace: space, colors: [white.nsColor.withAlphaComponent(0.55).cgColor,
+                                                                   white.nsColor.withAlphaComponent(0.04).cgColor,
+                                                                   white.nsColor.withAlphaComponent(0.22).cgColor] as CFArray,
+                                      locations: [0, 0.5, 1]) {
+                cg.drawLinearGradient(sheen, start: CGPoint(x: body.minX, y: body.minY), end: CGPoint(x: body.maxX, y: body.maxY), options: [])
+            }
+            cg.restoreGState()
         }
         if spec.family == .laptop {
             // Hinge chin under the black bezel.
@@ -183,8 +206,22 @@ struct DeviceFrame {
                 cg.setFillColor(CGColor(red: 0.08, green: 0.09, blue: 0.13, alpha: 1))
                 cg.fillEllipse(in: CGRect(x: r.midX - 7, y: r.midY - 7, width: 14, height: 14))
             } else {
-                cg.addPath(CGPath(roundedRect: r, cornerWidth: r.height / 2, cornerHeight: r.height / 2, transform: nil))
+                let pill = CGPath(roundedRect: r, cornerWidth: r.height / 2, cornerHeight: r.height / 2, transform: nil)
+                cg.addPath(pill)
+                cg.setFillColor(CGColor(red: 0.01, green: 0.01, blue: 0.015, alpha: 1))
                 cg.fillPath()
+                // A faint rim and the front camera keep the island visible on black screens.
+                cg.addPath(CGPath(roundedRect: r.insetBy(dx: 1.5, dy: 1.5), cornerWidth: r.height / 2 - 1.5,
+                                  cornerHeight: r.height / 2 - 1.5, transform: nil))
+                cg.setStrokeColor(CGColor(gray: 0.17, alpha: 1))
+                cg.setLineWidth(3)
+                cg.strokePath()
+                let lens = r.height * 0.36
+                let lensRect = CGRect(x: r.maxX - r.height / 2 - lens / 2, y: r.midY - lens / 2, width: lens, height: lens)
+                cg.setFillColor(CGColor(red: 0.07, green: 0.08, blue: 0.13, alpha: 1))
+                cg.fillEllipse(in: lensRect)
+                cg.setFillColor(CGColor(red: 0.25, green: 0.3, blue: 0.45, alpha: 0.7))
+                cg.fillEllipse(in: CGRect(x: lensRect.minX + lens * 0.22, y: lensRect.minY + lens * 0.2, width: lens * 0.22, height: lens * 0.22))
             }
             cg.restoreGState()
         }
@@ -197,6 +234,11 @@ struct DeviceFrame {
         cg.clip()
         cg.drawLinearGradient(gradient([finish.highlight, finish.metal, finish.metal, finish.button], [0, 0.18, 0.5, 1]),
                               start: CGPoint(x: 0, y: r.minY), end: CGPoint(x: 0, y: r.maxY), options: [])
+        // Bright deck edge and a darker underside give the base some thickness.
+        cg.setFillColor(CGColor(gray: 1, alpha: 0.35))
+        cg.fill(CGRect(x: r.minX, y: r.minY, width: r.width, height: 3))
+        cg.setFillColor(CGColor(gray: 0, alpha: 0.18))
+        cg.fill(CGRect(x: r.minX, y: r.minY + r.height * 0.62, width: r.width, height: r.height * 0.38))
         // Thumb notch at the front edge.
         let notch = CGRect(x: r.midX - spec.thumbNotch.width / 2, y: r.minY, width: spec.thumbNotch.width, height: spec.thumbNotch.height)
         cg.addPath(CGPath(roundedRect: notch.insetBy(dx: 0, dy: -spec.thumbNotch.height), cornerWidth: spec.thumbNotch.height,

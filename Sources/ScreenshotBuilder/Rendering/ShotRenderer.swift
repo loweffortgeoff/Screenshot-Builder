@@ -119,7 +119,7 @@ enum ShotRenderer {
                                     rect: place(DeviceFrame.outerSize(spec, landscape: rotated)))
             device = frame
             // Captures keep their proportions; a mismatched capture sits on black glass.
-            rect = Self.fit(sourceSize, in: frame.screenRect)
+            rect = Self.fit(sourceSize, in: frame.contentRect)
         case .rounded:
             rect = place(sourceSize)
             let ratio = spec.screenRadius > 0 ? spec.screenRadius / min(spec.screen.width, spec.screen.height) : 0.04
@@ -188,16 +188,18 @@ enum ShotRenderer {
             ?? CGPath(roundedRect: composition.imageRect, cornerWidth: composition.cornerRadius,
                       cornerHeight: composition.cornerRadius, transform: nil)
         if style.shadow {
-            // Shadow offsets are in device pixels and ignore the flipped transform.
+            // Two shadows: a wide ambient one and a tight contact one. Offsets are in device pixels.
             let unit = min(size.width, size.height)
             let pixelScale = CGFloat(width) / size.width
-            cg.saveGState()
-            cg.setShadow(offset: CGSize(width: 0, height: -unit * 0.022 * pixelScale), blur: unit * 0.06 * pixelScale,
-                         color: CGColor(gray: 0, alpha: 0.38))
-            cg.setFillColor(CGColor(gray: 0.08, alpha: 1))
-            cg.addPath(silhouette)
-            cg.fillPath()
-            cg.restoreGState()
+            for (offset, blur, alpha) in [(0.03, 0.09, 0.30), (0.008, 0.018, 0.30)] as [(CGFloat, CGFloat, CGFloat)] {
+                cg.saveGState()
+                cg.setShadow(offset: CGSize(width: 0, height: -unit * offset * pixelScale), blur: unit * blur * pixelScale,
+                             color: CGColor(gray: 0, alpha: alpha))
+                cg.setFillColor(CGColor(gray: 0.08, alpha: 1))
+                cg.addPath(silhouette)
+                cg.fillPath()
+                cg.restoreGState()
+            }
         }
         if let device = composition.device {
             device.draw(in: cg, finish: DeviceFinish.named(style.finish, for: device.spec.family), drawScreen: drawCapture)
