@@ -1,6 +1,6 @@
 # Screenshot Builder — Chapter 3 spec: canvas, Zoom, iPad, Mac, and compositions
 
-Status: spec only, written 2026-11-13. Not approved. No implementation exists.
+Status: spec only, written 2026-11-13, updated 2026-11-14 with Geoff's hands-on findings (see "Hands-on findings"). Not approved. No implementation exists.
 Branch `feature/pro-framing`, after `4c87fc2`.
 
 ## Why
@@ -28,7 +28,8 @@ Chapters 1 and 2 raised the ad-hoc UI council median from 3.8 to 7.5. Geoff acce
 | R1.1 | The crop never cuts a text line. Snap the crop to **block** boundaries: runs of busy rows separated by quiet gaps of at least 1% of the capture height. Snapping to single quiet rows is not enough. If no block fits within 0.10–0.24 of the capture height, take the block nearest the target and trim it to whole rows. | Unit test: synthetic capture with text-like stripe blocks; crop edges fall in gaps. Render check on all 5 List Happens captures and all 5 Bookmark-Collections captures with Auto, Top, Middle, and Bottom: no glyph is cut at the card edge. |
 | R1.2 | Magnification is at least 1.6× and at most 2.2× on iPhone and iPad. On Mac it is at least 1.5×. The card width follows from that. When the card would exceed 0.78 × canvas width, crop a narrower band instead of reducing the zoom. | Test: card width ÷ highlight width ≥ 1.6 for every preset, orientation, and layout. |
 | R1.3 | New visual treatment. The card has a thin 1.5 pt (canvas-scaled) light border and a soft shadow. The highlight ring is thinner, with a faint inner fill (white at 8%). The connector is a tapered "lens" shape joining two ring corners to two card corners, instead of a stub line. A "Lens style" option offers Lens (default) and Line (the current style). | Visual check at full size. A snapshot test compares the connector path against the four corner points. |
-| R1.4 | Manual region. Besides Auto, Top, Middle, and Bottom, a "Custom" region stores a unit rect. In the editor the user drags the highlight ring on the preview (see R2.4). The rect snaps to blocks on release. | Model test: custom rect round-trips through encode and decode. UI smoke test: drag in the live app moves the ring, and the export matches. |
+| R1.4 | Manual region and card position. Besides Auto, Top, Middle, and Bottom, a "Custom" region stores a unit rect. In the editor the user drags the highlight ring on the preview (see R2.4); the rect snaps to blocks on release. The card can also be dragged; its position is stored per shot as a unit offset and is clamped to the safe margin and away from captions. "Reset position" returns it to automatic placement. | Model test: custom rect and card offset round-trip through encode and decode. UI smoke test: dragging the ring changes what the card shows; dragging the card moves only the card; the export matches. |
+| R1.6 | The source marker must not read as a second card (H1). Replace the current white box, which repeats the card's border, with a **spotlight**: the rest of the screen dims by about 35%, and the source rows get a thin accent-colored outline with no fill. The card keeps the only white border. A "Marker" option offers Spotlight (default), Outline, and None. | Visual check: in a set of 5 Zoom shots, a reviewer cannot mistake the marker for a second magnified card. Snapshot test: the marker stroke color equals the theme accent, and the stroke width is at most 40% of the card border width. |
 | R1.5 | The card never covers more than 10% of the ring height. It never leaves the canvas safe margin. It never touches caption text. | Extend `everyArrangementStaysVisibleAndClearOfCaptions`. |
 
 ### R2 — Editor canvas
@@ -39,7 +40,7 @@ Chapters 1 and 2 raised the ad-hoc UI council median from 3.8 to 7.5. Geoff acce
 | R2.2 | **Zoom controls.** The toolbar gets − / Fit / 100% / + controls and the shortcuts ⌘−, ⌘0, ⌘1, ⌘=. Pinch on the trackpad zooms. At zoom levels above Fit, the preview scrolls and the render resolution follows the zoom level. | Live smoke test through the accessibility helper: zoom in, check the scroll area appears and the render is sharp at 100%. |
 | R2.3 | **Set view.** A Canvas / Set toggle in the toolbar (⌘2) shows all shots side by side, as in App Store Connect, at the largest size that fits. Clicking a shot selects it and returns to Canvas. Dragging in Set view reorders shots. The filmstrip stays in Canvas view. | Live capture of Set view with 5 shots: every shot is at least 280 pt tall at 1440 × 920. A reorder by drag persists after save and reopen. |
 | R2.4 | **On-canvas editing.** Double-click the headline or the subtitle on the preview to edit it in place. The editor is an overlay text field, styled at the preview scale, that commits on Return or click-away and cancels on Esc. Double-click the badge to edit it. In Zoom arrangement, the highlight ring can be dragged (R1.4). A single click on the device selects the shot and opens the Style tab's arrangement section. | Live smoke test: double-click the headline, type, press Return; the inspector field and the export match. Esc restores the old text. |
-| R2.5 | **Caption tab craft.** The font picker shows each family rendered in that family, as a grid of "Ag" tiles with names. Weight becomes a four-step segmented control that previews the weight. The Highlight menu stays, and a hint line under the headline explains it. Headline and subtitle fields use a larger, two-line minimum editor. | Window capture of the Caption tab: no plain popup remains for font or weight. |
+| R2.5 | **Caption tab craft.** The font picker shows each family rendered in that family, as a grid of "Ag" tiles with names. Weight becomes a segmented control that previews the weight and **lists only the weights the family really has** (H2). Each step must resolve to a different face of the same width: for example, Futura offers Medium and Bold only, because its "Heavy" is the same face as Bold and its "Black" is Condensed ExtraBold. A stored weight the family lacks maps to the nearest real face and shows that face's name. The subtitle weight is always at least one real step lighter than the headline weight. The Highlight menu stays, and a hint line under the headline explains it. Headline and subtitle fields use a larger, two-line minimum editor. | Window capture of the Caption tab: no plain popup remains for font or weight. Unit test: for every family, each offered weight resolves to a distinct font name with the same width trait, and the headline face differs from the subtitle face. |
 | R2.6 | **Device tab craft.** Finish swatches are 28 pt with a name under each and a tooltip. The Device section shows the selected device name and a small diagram of the current frame. The empty space is filled by moving **Shadow** and **Size** into a "Placement" group with a live mini preview, not by padding. | Window capture: no swatch without a label. |
 
 ### R3 — iPad scale and composition
@@ -58,7 +59,7 @@ Chapters 1 and 2 raised the ad-hoc UI council median from 3.8 to 7.5. Geoff acce
 | R4.1 | Re-measure the MacBook Air M5 bezel from Apple Design Resources (the license was already accepted, and nothing is bundled): lid outer radius, bezel per side, chin height, hinge, base depth, base front lip, and thumb notch. The current values give a thick chin. Store the new values with a source note, as `DeviceSpec` already does. | Spec values are recorded. The diagonal-method measurements are logged in the commit. |
 | R4.2 | Draw the base as a perspective deck: a darker hinge band, a lit top surface with a subtle gradient from back to front, a thin specular front lip, and rounded feet shadow. Draw the lid with an edge highlight and a faint glass reflection across the screen (white at 4%, diagonal). | Full-size render compared side by side with the Apple bezel PNG (scratchpad only): silhouette within 1.5% at every measured point. |
 | R4.3 | Add a **"Window only"** frame style for Mac. It draws the window capture with its own macOS corner radius and shadow on the canvas background, with no laptop. Many Mac App Store screenshots use this look. | Render check with a Mac window capture. |
-| R4.4 | A full-display Mac capture (2560 × 1664, menu bar included) fills the screen. A window capture floats on the theme wallpaper at the current 3.5% inset. No change; keep the tests. | The existing `macCapturesFillOrFloatByAspect` test still passes. |
+| R4.4 | **Display captures fill the screen (H3).** Today only a capture whose shape matches the MacBook display (2560 × 1664 or 16:10) fills it. Any other shape floats as a window, so a full-screen capture from an external display (for example 3440 × 1440) appears shrunk. Add a per-shot **Fit** choice for Mac: Auto (default), Fill screen, Window. Auto treats a capture as a display capture when it is opaque at all four corners, at least 1440 px tall, and wider than 1.5:1; otherwise as a window. Fill screen scales to cover the screen and crops the overflow, with a horizontal crop position (left / center / right, default center). Window keeps the current wallpaper float. The capture-fit advisory names the choice made and how much is cropped. | Unit tests: 3440 × 1440 opaque → display, fills the screen, crop ≤ 40% of the width; 2560 × 1664 → fills with no crop; a capture with transparent corners → window. Render check with Geoff's 3440 × 1440 capture. The existing `macCapturesFillOrFloatByAspect` cases still pass. |
 
 ### R5 — Caption compositions
 
@@ -77,7 +78,7 @@ Rules for all compositions:
 - **Alignment.** The shared caption band (`CaptionBand`) extends to group shots by composition. Shots with the same composition share a band, so their headlines align. Mixed compositions align their top margins only.
 - **Vary layouts** may assign compositions as well as arrangements. The curated sequence becomes pairs, for example Side by side + Standard, Stacked + Duo, Big number + Standard, Stacked + Zoom, Text only (if 6 or more shots).
 - **Contrast.** The contrast test covers the stat color (accent) and the overlay band.
-- **File format.** Version 4. New keys: `composition`, `stat`, `calloutRect`, `lensStyle`, and `frameStyle` value `windowOnly`. Older files decode with Stacked and no stat.
+- **File format.** Version 4. New keys: `composition`, `stat`, `calloutRect`, `calloutCardOffset`, `calloutMarker`, `lensStyle`, `macFit`, `macCropPosition`, and `frameStyle` value `windowOnly`. Older files decode with Stacked and no stat.
 
 ## UI summary
 
@@ -90,7 +91,8 @@ Rules for all compositions:
 
 ```
 Shot: + composition: Composition? (nil = follow set) · + stat: String
-      · calloutRegion gains .custom · + calloutRect: CGRect? · + lensStyle
+      · calloutRegion gains .custom · + calloutRect: CGRect? · + calloutCardOffset: CGPoint?
+      · + calloutMarker (.spotlight default) · + lensStyle · + macFit (.auto) · + macCropPosition
 SetStyle: + composition: Composition (default .stacked)
 FrameStyle: + .windowOnly (Mac only; other presets treat it as .rounded)
 ShotDocument.currentVersion = 4
@@ -119,12 +121,27 @@ ShotDocument.currentVersion = 4
 
 ## Milestones (each one a review stop unless Geoff says full-send)
 
-1. **Z — Zoom quality:** R1.1–R1.3 and R1.5.
+1. **Z — Zoom quality:** R1.1–R1.3, R1.5, and R1.6 (spotlight marker).
 2. **C — Canvas:** R2.1–R2.3.
-3. **E — On-canvas editing and tab craft:** R2.4–R2.6 and R1.4.
-4. **P — Platforms:** R3 (iPad) and R4 (Mac).
+3. **E — On-canvas editing and tab craft:** R2.4–R2.6 (including real weights) and R1.4 (ring and card drag).
+4. **P — Platforms:** R3 (iPad) and R4 (Mac, including display-capture fill).
 5. **K — Compositions:** R5 and format v4.
 6. **N — Council:** freeze, review, then up to 3 rounds.
+
+## Hands-on findings (Geoff, 2026-11-14)
+
+Geoff tested the chapter 2 build (`530d33c`, MacBook Pro) with To-Do app captures on iPhone 6.9 and Screenshot Builder captures on Mac. Evidence is in `Dev Workstation/Visual Verification/screenshot builder/2026-11-14-Framing-test/`. iPad was not tested.
+
+| ID | Finding | Evidence | Where it goes |
+|---|---|---|---|
+| H1 | "Why are there 2 Zoom boxes? I feel like it should be movable." The white source ring looks like a second card, the ring cuts a row ("Overdue"), and neither box can be moved. | iPhone shot 3 | R1.1 (block snapping, already specified), new R1.6 (spotlight marker), extended R1.4 (drag ring and card). |
+| H2 | "Bold weight is very close to Heavy." Checked on 2026-11-14: in Futura, Heavy and Bold resolve to the same face (`Futura-Bold`), Black switches to `Futura-CondensedExtraBold`, Georgia resolves every weight to `Georgia-Bold`, and Helvetica Neue Black is condensed. | Mac shot 2 | R2.5, which now requires real, distinct weights only. |
+| H3 | "Image appears to get resized. This is the entire Mac screen, corner to corner." A 3440 × 1440 full-screen capture from an external display does not match the MacBook shape, so it is drawn as a floating window. | Mac shot 3 | R4.4, which now adds display-capture detection and Fill screen. |
+| H4 | Duo: "Oh, THIS is what Duo meant. Pretty neat." Also "Use Duo to mask weaker images." | iPhone shots 2 and 8 | Validation. No change. |
+| H5 | Tilt and Hero work. "Hero left: slightly less angle than Tilt L" (correct: Hero leans 4°, Tilt 8°). Shot 7 is labelled "Hero Right" but shows a Duo of Calendar and Today; read as Geoff choosing Duo for that shot. The renderer draws Hero with a single device, and tests cover it. | iPhone shots 4–7 | No change. Confirm with Geoff. |
+| H6 | iPad output not tested: no iPad Pro on hand. iPad output does not need a device; captures from the iPad Pro 13-inch simulator work (used in chapter 2). An iPad mini capture is a different shape and would show the capture-fit warning in an iPad Pro frame. | none | Stays open. Chapter 3 milestone P re-checks iPad with simulator captures; Geoff's iPad acceptance stays on the TODO list. |
+
+Decision (2026-11-14): fold H1–H3 into chapter 3 instead of a separate fix pass. None blocks use or corrupts data. Each one touches code that chapter 3 rewrites anyway (the Zoom marker and drag in milestone Z/E, the weight control in E, the Mac fit in P), so fixing them first would be redone. Chapter 3 milestone Z (Zoom) remains first because H1 is the most visible.
 
 ## Open questions for Geoff
 
@@ -132,6 +149,8 @@ ShotDocument.currentVersion = 4
 2. Overlay: blur needs Core Image in the renderer. Is that acceptable, or should Overlay use a flat 85% band instead?
 3. Set view reorder: should it replace the hidden list sidebar entirely, so the sidebar can be removed?
 4. Mac "Window only": should it be the default frame for the Mac preset?
+5. Fill screen for wide display captures crops the sides. Is center crop with a left / center / right choice enough, or do you want a free crop slider?
+6. Shot 7 in the 2026-11-14 test is labelled "Hero Right" but shows a Duo. Did you choose Duo there on purpose?
 
 ## Risks
 
