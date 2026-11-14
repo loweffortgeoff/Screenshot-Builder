@@ -15,6 +15,9 @@ struct StyleInspector: View {
     var arrangement: AnyView?
     /// The selected shot as it exports, for the Placement mini preview.
     var preview: NSImage?
+    /// Applies a starter look to the whole set, and the shot its gallery tiles draw.
+    var applyLook: ((Look) -> Void)?
+    var lookShot: Shot?
     /// Advanced background starts closed, so the default Style tab stays short.
     @State private var advancedOpen = false
 
@@ -22,6 +25,9 @@ struct StyleInspector: View {
         switch tab {
         case .caption: textSection
         case .style:
+            if let applyLook {
+                Section("Looks") { LookPicker(style: style, shot: lookShot, apply: applyLook) }
+            }
             layoutSection
             if let arrangement { arrangement }
             themeSection

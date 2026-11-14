@@ -231,7 +231,9 @@ struct EditorView: View {
                                varyLayouts: document.shots.isEmpty ? nil : { varyLayouts() },
                                makeUniform: document.shots.isEmpty ? nil : { makeUniform() },
                                arrangement: arrangementInspector,
-                               preview: selection.flatMap { thumbnails[$0] })
+                               preview: selection.flatMap { thumbnails[$0] },
+                               applyLook: document.shots.isEmpty ? nil : { document.apply($0) },
+                               lookShot: selectedIndex.map { document.shots[$0] })
             }
             .formStyle(.grouped)
         }
