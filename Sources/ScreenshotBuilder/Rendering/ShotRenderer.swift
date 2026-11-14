@@ -1116,7 +1116,7 @@ enum ShotRenderer {
             let screenClip = frontLayer?.device?.screenPath
                 ?? frontLayer.map { CGPath(roundedRect: $0.imageRect, cornerWidth: $0.cornerRadius, cornerHeight: $0.cornerRadius, transform: nil) }
             drawCallout(callout, source: source, in: cg, unit: unit, pixelScale: pixelScale,
-                        accent: style.accent.nsColor.cgColor, screenClip: screenClip)
+                        accent: style.accent.nsColor.cgColor, tint: cardTint(style.accent).nsColor.cgColor, screenClip: screenClip)
         }
         // AppKit text drawing needs the flipped context flag as well as the transform.
         NSGraphicsContext.current = NSGraphicsContext(cgContext: cg, flipped: true)
@@ -1203,8 +1203,18 @@ enum ShotRenderer {
     }
 
     /// A thin-bordered card showing one band of the capture, magnified, joined to its marked source on the screen.
+    /// The Zoom card's border and connector color (Q1 B): a tint between white and the theme accent, so the card
+    /// belongs to the theme instead of reading as a white box.
+    static func cardTint(_ accent: RGBColor) -> RGBColor {
+        let share = 0.4
+        return RGBColor(1 - (1 - accent.red) * share, 1 - (1 - accent.green) * share, 1 - (1 - accent.blue) * share)
+    }
+
+    /// The Zoom card's drop shadow opacity: softer than chapter 3's 0.40 (Q1 B).
+    static let cardShadowAlpha: CGFloat = 0.28
+
     private static func drawCallout(_ callout: Callout, source: CGImage, in cg: CGContext, unit: CGFloat, pixelScale: CGFloat,
-                                    accent: CGColor, screenClip: CGPath?) {
+                                    accent: CGColor, tint: CGColor, screenClip: CGPath?) {
         let border = cardBorder(unit: unit)
         let ring = callout.highlight
         if ring != .zero {
@@ -1247,9 +1257,9 @@ enum ShotRenderer {
                 let quad = lensQuad(ring: ring, card: callout.rect)
                 cg.addLines(between: quad)
                 cg.closePath()
-                cg.setFillColor(CGColor(gray: 1, alpha: 0.13))
+                cg.setFillColor(tint.copy(alpha: 0.13) ?? tint)
                 cg.fillPath()
-                cg.setStrokeColor(CGColor(gray: 1, alpha: 0.30))
+                cg.setStrokeColor(tint.copy(alpha: 0.30) ?? tint)
                 cg.setLineWidth(max(1, border * 0.3))
                 cg.move(to: quad[0]); cg.addLine(to: quad[3])
                 cg.move(to: quad[1]); cg.addLine(to: quad[2])
@@ -1269,8 +1279,8 @@ enum ShotRenderer {
                     from = CGPoint(x: ringX, y: below ? ring.maxY : ring.minY)
                     to = CGPoint(x: cardX, y: below ? callout.rect.minY : callout.rect.maxY)
                 }
-                cg.setStrokeColor(CGColor(gray: 1, alpha: 0.85))
-                cg.setFillColor(CGColor(gray: 1, alpha: 0.85))
+                cg.setStrokeColor(tint.copy(alpha: 0.85) ?? tint)
+                cg.setFillColor(tint.copy(alpha: 0.85) ?? tint)
                 cg.setLineWidth(border * 0.5)
                 cg.setLineCap(.round)
                 cg.move(to: from); cg.addLine(to: to); cg.strokePath()
@@ -1283,9 +1293,9 @@ enum ShotRenderer {
                                cornerHeight: callout.cornerRadius + border, transform: nil)
         cg.saveGState()
         cg.setShadow(offset: CGSize(width: 0, height: -unit * 0.012 * pixelScale), blur: unit * 0.045 * pixelScale,
-                     color: CGColor(gray: 0, alpha: 0.40))
+                     color: CGColor(gray: 0, alpha: cardShadowAlpha))
         cg.addPath(outerPath)
-        cg.setFillColor(CGColor(gray: 1, alpha: 0.96))
+        cg.setFillColor(tint.copy(alpha: 0.96) ?? tint)
         cg.fillPath()
         cg.restoreGState()
         let w = CGFloat(source.width), h = CGFloat(source.height)
