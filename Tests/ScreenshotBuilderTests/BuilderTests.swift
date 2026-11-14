@@ -470,9 +470,9 @@ struct BuilderTests {
                         var style = SetStyle()
                         style.preset = preset; style.landscape = landscape; style.layout = layout
                         shot.arrangement = arrangement
-                        let c = ShotRenderer.compose(shot: shot, style: style, sourceSize: CGSize(width: 1320, height: 2868))
+                        var c = ShotRenderer.compose(shot: shot, style: style, sourceSize: CGSize(width: 1320, height: 2868))
                         let canvas = CGRect(origin: .zero, size: style.size)
-                        let front = try #require(c.layers.last)
+                        var front = try #require(c.layers.last)
                         let visible = front.bounds.intersection(canvas)
                         // At least half of the front device stays on the canvas.
                         #expect(visible.width * visible.height >= front.bounds.width * front.bounds.height * 0.5,
@@ -484,7 +484,23 @@ struct BuilderTests {
                             }
                         }
                         if let callout = c.callout { #expect(canvas.contains(callout.rect)) }
+                        if arrangement == .heroLeft || arrangement == .heroRight {
+                            // Hero runs off the side only; top and bottom stay on the canvas (small lean allowance).
+                            let lean = front.frame.width * 0.08
+                            #expect(front.frame.minY >= -0.5 && front.frame.maxY <= canvas.maxY + 0.5, "\(preset) \(landscape) \(layout) hero")
+                            #expect(front.bounds.minY >= -lean && front.bounds.maxY <= canvas.maxY + lean)
+                        }
+                        #expect(c.layers.count == 1, "no companion passed, so Duo draws as Standard")
+                        c = ShotRenderer.compose(shot: shot, style: style, sourceSize: CGSize(width: 1320, height: 2868),
+                                                 companionSize: CGSize(width: 1320, height: 2868))
+                        front = try #require(c.layers.last)
                         #expect((arrangement == .duo) == (c.layers.count == 2))
+                        if layout.hasCaption {
+                            for layer in c.layers {
+                                if layout.captionOnTop { #expect(layer.bounds.minY >= c.subtitleRect.maxY - 0.5) }
+                                else { #expect(layer.bounds.maxY <= c.headlineRect.minY + 0.5) }
+                            }
+                        }
                         #expect((arrangement == .callout) == (c.callout != nil))
                     }
                 }

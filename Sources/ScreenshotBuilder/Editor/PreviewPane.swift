@@ -54,13 +54,20 @@ struct PreviewPane: View {
                                 .offset(x: fitted.minX, y: fitted.minY)
                                 .accessibilityHidden(true)
                         }
-                        VStack(spacing: 10) {
-                            Image(systemName: "square.and.arrow.down.on.square").font(.system(size: 30, weight: .medium))
-                            Text("Drop screenshots").font(.title3.weight(.semibold))
-                            Text("Up to 10 PNG or JPEG captures. Then pick a theme and write captions that sell.")
-                                .font(.callout).multilineTextAlignment(.center).foregroundStyle(.white.opacity(0.7))
-                            Button("Import Screenshots", action: importImages)
-                                .buttonStyle(.borderedProminent).controlSize(.large)
+                        // Drop the description, then shrink the button, when the device screen is small.
+                        ViewThatFits(in: .vertical) {
+                            VStack(spacing: 10) {
+                                Image(systemName: "square.and.arrow.down.on.square").font(.system(size: 30, weight: .medium))
+                                Text("Drop screenshots").font(.title3.weight(.semibold))
+                                Text("Up to 10 PNG or JPEG captures. Then pick a theme and write captions that sell.")
+                                    .font(.callout).multilineTextAlignment(.center).foregroundStyle(.white.opacity(0.7))
+                                Button("Import Screenshots", action: importImages)
+                                    .buttonStyle(.borderedProminent).controlSize(.large)
+                            }
+                            VStack(spacing: 8) {
+                                Image(systemName: "square.and.arrow.down.on.square").font(.system(size: 22, weight: .medium))
+                                Button("Import", action: importImages).buttonStyle(.borderedProminent)
+                            }
                         }
                         .foregroundStyle(.white)
                         .padding(16)

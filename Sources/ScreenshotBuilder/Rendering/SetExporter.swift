@@ -7,7 +7,8 @@ enum SetExporter {
         guard !shots.isEmpty else { throw BuilderError.message("Add at least one screenshot first.") }
         let band = ShotRenderer.captionBand(shots: shots, style: style)
         for (index, shot) in shots.enumerated() {
-            let errors = ShotRenderer.issues(shot: shot, style: style, captionBand: band).blocking
+            let errors = ShotRenderer.issues(shot: shot, style: style, captionBand: band,
+                                             companion: ShotRenderer.companion(for: shot, in: shots)).blocking
             if !errors.isEmpty { throw BuilderError.message("Shot \(index + 1): \(errors.joined(separator: " "))") }
         }
         let folder = parent.appendingPathComponent("Screenshots-\(Int(style.size.width))x\(Int(style.size.height))-\(UUID().uuidString.prefix(8))", isDirectory: true)

@@ -175,6 +175,8 @@ enum ShotRenderer {
         }
         let spec = DeviceSpec.for(style.preset)
         let rotatedDevice = style.landscape && style.preset != .mac
+        // Duo needs a second capture; without one (a one-shot set) the shot draws as Standard.
+        let arrangement: Arrangement = shot.arrangement == .duo && companionSize == nil ? .standard : shot.arrangement
         let companionSize = companionSize ?? sourceSize
         /// Builds a layer that fills `box` with a device (or the bare capture) and fits `capture` inside.
         func layer(in box: CGRect, capture: CGSize, rotation: CGFloat = 0, companion: Bool = false) -> Layer {
@@ -216,26 +218,32 @@ enum ShotRenderer {
         let degrees = CGFloat.pi / 180
         var layers: [Layer] = []
         var callout: Callout?
-        switch shot.arrangement {
+        switch arrangement {
         case .standard:
             layers = [layer(in: base, capture: sourceSize)]
         case .tiltLeft, .tiltRight:
             // The canvas y-axis points down, so a positive angle turns clockwise: the device's top leans right.
-            let sign: CGFloat = shot.arrangement == .tiltRight ? 1 : -1
+            let sign: CGFloat = arrangement == .tiltRight ? 1 : -1
             layers = [layer(in: scaled(base, 0.97, dx: sign * base.width * 0.05), capture: sourceSize, rotation: sign * 8 * degrees)]
         case .heroLeft, .heroRight:
-            // Start from the plain fit, not a bleed placement, so the device does not run off two edges at once.
-            var r = scaled(Self.fit(objectAspect, in: available), 1.2)
+            // Start from the plain fit, not a bleed placement, and grow only while the device still fits vertically,
+            // so it runs off the side edge alone and the status bar and tab bar stay on the canvas.
+            let plain = Self.fit(objectAspect, in: available)
+            let roomTall = (style.layout.hasCaption ? available.height : size.height - margin * 2) * 0.97
+            let grow = min(1.2, roomTall / plain.height)
+            var r = scaled(plain, max(1, grow))
             if style.layout.hasCaption {
                 if style.layout.captionOnTop { r.origin.y = available.minY } else { r.origin.y = available.maxY - r.height }
+            } else {
+                r.origin.y = (size.height - r.height) / 2
             }
             // About a quarter of the device runs off the side edge.
-            r.origin.x = shot.arrangement == .heroRight ? size.width - r.width * 0.76 : -r.width * 0.24
+            r.origin.x = arrangement == .heroRight ? size.width - r.width * 0.76 : -r.width * 0.24
             // Lean the device's top toward the canvas center.
-            layers = [layer(in: r, capture: sourceSize, rotation: (shot.arrangement == .heroRight ? -4 : 4) * degrees)]
+            layers = [layer(in: r, capture: sourceSize, rotation: (arrangement == .heroRight ? -4 : 4) * degrees)]
         case .duo:
-            let back = scaled(base, 0.8, dx: -base.width * 0.21, dy: -base.height * 0.03)
-            let front = scaled(base, 0.86, dx: base.width * 0.19, dy: base.height * 0.05)
+            let back = scaled(base, 0.78, dx: -base.width * 0.17, dy: -base.height * 0.03)
+            let front = scaled(base, 0.84, dx: base.width * 0.15, dy: base.height * 0.05)
             layers = [layer(in: back, capture: companionSize, rotation: 7 * degrees, companion: true),
                       layer(in: front, capture: sourceSize, rotation: -3 * degrees)]
         case .callout:
@@ -243,7 +251,9 @@ enum ShotRenderer {
             layers = [device]
             // Magnify a band of the capture about 1.6x, on a card that overlaps the device's right edge.
             // Whole rows read better than a cropped middle, so the band spans nearly the full capture width.
-            let crop = CGRect(x: 0.03, y: min(max(shot.calloutCenter - 0.09, 0), 0.82), width: 0.94, height: 0.18)
+            // On wide captures, narrow the band so the card stays about 2.2:1 instead of a thin strip.
+            let cropWidth = min(0.94, 0.18 * sourceSize.height * 2.2 / sourceSize.width)
+            let crop = CGRect(x: (1 - cropWidth) / 2, y: min(max(shot.calloutCenter - 0.09, 0), 0.82), width: cropWidth, height: 0.18)
             let cardWidth = min(size.width * 0.74, device.imageRect.width * crop.width * 1.45)
             let cardHeight = cardWidth * (crop.height * sourceSize.height) / (crop.width * sourceSize.width)
             let anchorY = device.imageRect.minY + device.imageRect.height * shot.calloutCenter
@@ -310,15 +320,18 @@ enum ShotRenderer {
 
     /// Pass the set's band so validation checks exactly what render draws.
     /// Blocking issues stop export; advisories only inform.
-    static func issues(shot: Shot, style: SetStyle, captionBand: CaptionBand? = nil) -> (blocking: [String], advisory: [String]) {
+    static func issues(shot: Shot, style: SetStyle, captionBand: CaptionBand? = nil,
+                       companion: Shot? = nil) -> (blocking: [String], advisory: [String]) {
         guard let image = shot.cgImage else { return (["Source image cannot be read."], []) }
-        let c = compose(shot: shot, style: style, sourceSize: CGSize(width: image.width, height: image.height), captionBand: captionBand)
+        let companionSize = companion?.cgImage.map { CGSize(width: $0.width, height: $0.height) }
+        let c = compose(shot: shot, style: style, sourceSize: CGSize(width: image.width, height: image.height),
+                        captionBand: captionBand, companionSize: companionSize)
         return (c.warnings, c.advisories)
     }
 
     /// Every issue, blocking first, for display.
-    static func warnings(shot: Shot, style: SetStyle, captionBand: CaptionBand? = nil) -> [String] {
-        let found = issues(shot: shot, style: style, captionBand: captionBand)
+    static func warnings(shot: Shot, style: SetStyle, captionBand: CaptionBand? = nil, companion: Shot? = nil) -> [String] {
+        let found = issues(shot: shot, style: style, captionBand: captionBand, companion: companion)
         return found.blocking + found.advisory
     }
 

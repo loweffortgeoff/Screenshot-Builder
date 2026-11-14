@@ -107,6 +107,10 @@ struct EditorView: View {
         .confirmationDialog("Remove this screenshot?", isPresented: Binding(get: { removal != nil }, set: { if !$0 { removal = nil } }), titleVisibility: .visible) {
             Button("Remove Screenshot", role: .destructive) {
                 document.shots.removeAll { $0.id == removal }
+                // Clear Duo back screens that pointed at the removed shot.
+                for index in document.shots.indices where document.shots[index].companion == removal {
+                    document.shots[index].companion = nil
+                }
                 removal = nil
                 ensureSelection()
             }
@@ -150,7 +154,8 @@ struct EditorView: View {
             let image = NSImage(size: bitmap.size)
             image.addRepresentation(bitmap)
             rendered[shot.id] = image
-            if ShotRenderer.issues(shot: shot, style: style, captionBand: band).advisory.contains(where: { $0.contains("different device") }) {
+            if ShotRenderer.issues(shot: shot, style: style, captionBand: band,
+                                   companion: ShotRenderer.companion(for: shot, in: shots)).advisory.contains(where: { $0.contains("different device") }) {
                 misfits.insert(shot.id)
             }
         }
@@ -191,6 +196,7 @@ struct EditorView: View {
                     CaptionInspector(shot: $document.shots[index], position: index + 1, style: document.style,
                                      captionBand: ShotRenderer.captionBand(shots: document.shots, style: document.style),
                                      others: otherShots(excluding: index),
+                                     companion: ShotRenderer.companion(for: document.shots[index], in: document.shots),
                                      replaceImage: { replacing = selection; importing = true })
                 }
                 StyleInspector(style: $document.style, tab: tab,

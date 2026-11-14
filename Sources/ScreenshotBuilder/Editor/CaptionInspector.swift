@@ -7,6 +7,7 @@ struct CaptionInspector: View {
     var captionBand: ShotRenderer.CaptionBand?
     /// Other shots in the set, for the Duo back-screen menu.
     var others: [(id: UUID, label: String)] = []
+    var companion: Shot?
     let replaceImage: () -> Void
 
     var body: some View {
@@ -24,7 +25,8 @@ struct CaptionInspector: View {
                 }
                 .disabled(others.isEmpty)
                 if others.isEmpty {
-                    Text("Add another screenshot to show a second screen.").font(.caption).foregroundStyle(.secondary)
+                    Text("Duo needs a second screenshot. Until you add one, this shot draws as Standard.")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
             }
             if shot.arrangement == .callout {
@@ -70,7 +72,7 @@ struct CaptionInspector: View {
                 Label("Captions are saved but hidden in this layout.", systemImage: "eye.slash")
                     .font(.caption).foregroundStyle(.secondary)
             }
-            let found = ShotRenderer.issues(shot: shot, style: style, captionBand: captionBand)
+            let found = ShotRenderer.issues(shot: shot, style: style, captionBand: captionBand, companion: companion)
             ForEach(found.blocking, id: \.self) { warning in
                 Label(warning, systemImage: "exclamationmark.octagon.fill")
                     .font(.callout).foregroundStyle(.red)
