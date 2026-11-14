@@ -13,9 +13,16 @@ mkdir -p "$work"
 tree_for() { # prints a source tree for a revision
   local rev=$1
   if [[ $rev == "." ]]; then print "$repo"; return; fi
-  local sha=$(git -C "$repo" rev-parse --short "$rev")
+  local sha
+  sha=$(git -C "$repo" rev-parse --short "$rev") || { print -u2 "unknown revision: $rev"; exit 2; }
   local dir="$work/src-$sha"
-  if [[ ! -d $dir ]]; then mkdir -p "$dir"; git -C "$repo" archive "$sha" | tar -x -C "$dir"; fi
+  if [[ ! -d $dir ]]; then
+    # Extract beside the target and rename on success, so a failed archive never leaves a tree to reuse.
+    local partial="$dir.partial"
+    rm -rf "$partial"; mkdir -p "$partial"
+    git -C "$repo" archive "$sha" | tar -x -C "$partial" || { rm -rf "$partial"; print -u2 "archive failed: $sha"; exit 2; }
+    mv "$partial" "$dir"
+  fi
   print "$dir"
 }
 
