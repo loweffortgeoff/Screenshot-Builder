@@ -56,19 +56,43 @@ enum ShotRenderer {
         }
     }
 
-    /// The caption band shared by a whole set: tall enough for its longest caption, never above two plus two lines.
-    /// A shared band keeps every headline and screenshot at the same height across the set.
-    static func captionBand(shots: [Shot], style: SetStyle) -> CGFloat {
-        let metrics = CaptionMetrics(style: style)
-        let needed = shots.map { captionHeight(shot: $0, style: style, metrics: metrics).total }.max() ?? 0
-        return min(max(needed, 1), metrics.maxBand)
+    /// Caption geometry shared by a whole set, so headlines start on one line and screenshots align.
+    struct CaptionBand: Equatable {
+        var height: CGFloat
+        /// Headline line count for the set. Short headlines wrap to match when they can.
+        var lines: Int
     }
 
-    private static func captionHeight(shot: Shot, style: SetStyle, metrics: CaptionMetrics)
+    /// Tall enough for the longest caption, never above two headline lines plus two subtitle lines.
+    static func captionBand(shots: [Shot], style: SetStyle) -> CaptionBand {
+        let metrics = CaptionMetrics(style: style)
+        let lines = min(2, shots.map { naturalLines(headlineText($0.headline, accents: $0.accents, style: style, size: metrics.headSize),
+                                                     width: metrics.textWidth) }.max() ?? 1)
+        let needed = shots.map { captionHeight(shot: $0, style: style, metrics: metrics, lines: lines).total }.max() ?? 0
+        return CaptionBand(height: min(max(needed, 1), metrics.maxBand), lines: max(1, lines))
+    }
+
+    private static func naturalLines(_ text: NSAttributedString, width: CGFloat) -> Int {
+        guard text.length > 0 else { return 0 }
+        let one = measuredHeight(NSAttributedString(string: "X", attributes: text.attributes(at: 0, effectiveRange: nil)), width: width)
+        return max(1, Int((measuredHeight(text, width: width) / one).rounded()))
+    }
+
+    private static func captionHeight(shot: Shot, style: SetStyle, metrics: CaptionMetrics, lines: Int?)
         -> (head: CGFloat, sub: CGFloat, headWidth: CGFloat, subWidth: CGFloat, total: CGFloat) {
-        let headline = headlineText(shot.headline, style: style, size: metrics.headSize)
+        let headline = headlineText(shot.headline, accents: shot.accents, style: style, size: metrics.headSize)
         let subtitle = subtitleText(shot.subtitle, style: style, size: metrics.subSize)
-        let headWidth = balancedWidth(headline, maxWidth: metrics.textWidth)
+        var headWidth = balancedWidth(headline, maxWidth: metrics.textWidth)
+        // Match the set's line count: wrap a one-line headline of three or more words onto two balanced lines.
+        if let lines, lines > naturalLines(headline, width: metrics.textWidth),
+           headline.string.split(separator: " ").count >= 3 {
+            var low = metrics.textWidth * 0.25, high = metrics.textWidth
+            for _ in 0..<14 {
+                let mid = (low + high) / 2
+                if naturalLines(headline, width: mid) > lines { low = mid } else { high = mid }
+            }
+            headWidth = min(metrics.textWidth, high + 2)
+        }
         let subWidth = balancedWidth(subtitle, maxWidth: metrics.textWidth)
         let head = shot.headline.isEmpty ? 0 : measuredHeight(headline, width: headWidth)
         let sub = shot.subtitle.isEmpty ? 0 : measuredHeight(subtitle, width: subWidth)
@@ -76,16 +100,16 @@ enum ShotRenderer {
         return (head, sub, headWidth, subWidth, head + gap + sub)
     }
 
-    static func compose(shot: Shot, style: SetStyle, sourceSize: CGSize, captionBand: CGFloat? = nil) -> Composition {
+    static func compose(shot: Shot, style: SetStyle, sourceSize: CGSize, captionBand: CaptionBand? = nil) -> Composition {
         let size = style.size
         let metrics = CaptionMetrics(style: style)
         let margin = metrics.margin
         let hasCaption = style.layout.hasCaption
-        let headline = headlineText(shot.headline, style: style, size: metrics.headSize)
+        let headline = headlineText(shot.headline, accents: shot.accents, style: style, size: metrics.headSize)
         let subtitle = subtitleText(shot.subtitle, style: style, size: metrics.subSize)
-        let caption = captionHeight(shot: shot, style: style, metrics: metrics)
+        let caption = captionHeight(shot: shot, style: style, metrics: metrics, lines: captionBand?.lines)
         let needed = caption.total
-        let captionHeight = hasCaption ? (captionBand ?? metrics.maxBand) : 0
+        let captionHeight = hasCaption ? (captionBand?.height ?? metrics.maxBand) : 0
         let separation = hasCaption ? metrics.separation : 0
         let top = margin * 1.25
         let imageArea = CGRect(x: margin, y: top + (style.layout.captionOnTop ? captionHeight + separation : 0),
@@ -128,9 +152,9 @@ enum ShotRenderer {
             rect = place(sourceSize)
         }
         let fit = rect.width / sourceSize.width
-        // The band is shared across the set, so screenshots line up; each caption centers in it.
+        // The band is shared across the set and captions start at its top, so headlines share a line.
         let captionTop = style.layout.captionOnTop ? top : size.height - margin * 1.6 - captionHeight
-        let textY = captionTop + max(0, (captionHeight - needed) / 2)
+        let textY = style.layout.captionOnTop ? captionTop : captionTop + max(0, captionHeight - needed)
         let textWidth = metrics.textWidth
         var warnings: [String] = []
         if hasCaption && needed > metrics.maxBand + 0.5 { warnings.append("Caption is too long. Shorten the headline or subtitle before export.") }
@@ -158,7 +182,7 @@ enum ShotRenderer {
     }
 
     static func render(shot: Shot, style: SetStyle, maxDimension: CGFloat? = nil,
-                       position: SetPosition = .single, captionBand: CGFloat? = nil) throws -> NSBitmapImageRep {
+                       position: SetPosition = .single, captionBand: CaptionBand? = nil) throws -> NSBitmapImageRep {
         guard let source = shot.cgImage else { throw BuilderError.message("Cannot read \(shot.name).") }
         let size = style.size
         let scale = maxDimension.map { min(1, $0 / max(size.width, size.height)) } ?? 1
@@ -273,7 +297,7 @@ enum ShotRenderer {
     }
 
     /// Headline text. Words wrapped in *asterisks* take the accent color.
-    static func headlineText(_ text: String, style: SetStyle, size: CGFloat) -> NSAttributedString {
+    static func headlineText(_ text: String, accents: [String] = [], style: SetStyle, size: CGFloat) -> NSAttributedString {
         let font = style.font.font(size: size, weight: style.weight.nsWeight)
         let output = NSMutableAttributedString()
         let base = attributes(style: style, font: font, color: style.foreground.nsColor, lineHeight: 0.96)
@@ -281,6 +305,16 @@ enum ShotRenderer {
             var attrs = base
             if index % 2 == 1 { attrs[.foregroundColor] = style.accent.nsColor }
             output.append(NSAttributedString(string: part, attributes: attrs))
+        }
+        // Stored accent words, matched as whole words without case.
+        let wanted = Set(accents.map { $0.lowercased() })
+        if !wanted.isEmpty {
+            let string = output.string as NSString
+            string.enumerateSubstrings(in: NSRange(location: 0, length: string.length), options: .byWords) { word, range, _, _ in
+                if let word, wanted.contains(word.lowercased()) {
+                    output.addAttribute(.foregroundColor, value: style.accent.nsColor, range: range)
+                }
+            }
         }
         // Tight tracking suits display sizes.
         output.addAttribute(.kern, value: -size * 0.012, range: NSRange(location: 0, length: output.length))

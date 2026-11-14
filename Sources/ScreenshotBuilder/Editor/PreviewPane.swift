@@ -4,7 +4,7 @@ struct PreviewPane: View {
     let shot: Shot?
     let style: SetStyle
     var position = ShotRenderer.SetPosition.single
-    var captionBand: CGFloat?
+    var captionBand: ShotRenderer.CaptionBand?
     let importImages: () -> Void
     @State private var preview: NSImage?
     @State private var error: String?
@@ -61,5 +61,5 @@ private struct PreviewKey: Equatable {
     let shot: Shot?
     let style: SetStyle
     let position: ShotRenderer.SetPosition
-    let captionBand: CGFloat?
+    let captionBand: ShotRenderer.CaptionBand?
 }

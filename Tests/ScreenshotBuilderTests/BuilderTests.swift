@@ -277,16 +277,13 @@ struct BuilderTests {
         long.headline = "A longer headline that wraps"
         let style = SetStyle()
         let band = ShotRenderer.captionBand(shots: [short, long], style: style)
-        #expect(band <= ShotRenderer.CaptionMetrics(style: style).maxBand)
-        #expect(band > ShotRenderer.captionBand(shots: [short], style: style))
+        #expect(band.height <= ShotRenderer.CaptionMetrics(style: style).maxBand)
+        #expect(band.height > ShotRenderer.captionBand(shots: [short], style: style).height)
         let source = CGSize(width: 1320, height: 2868)
         let a = ShotRenderer.compose(shot: short, style: style, sourceSize: source, captionBand: band)
         let b = ShotRenderer.compose(shot: long, style: style, sourceSize: source, captionBand: band)
         #expect(a.imageRect == b.imageRect)
-        // Each caption block centers in the shared band.
-        let blockA = a.headlineRect.union(a.subtitleRect.height > 0 ? a.subtitleRect : a.headlineRect)
-        let blockB = b.headlineRect.union(b.subtitleRect)
-        #expect(abs(blockA.midY - blockB.midY) < 1)
+        #expect(a.headlineRect.minY == b.headlineRect.minY)
         #expect(b.subtitleRect.maxY <= b.imageRect.minY)
     }
 
@@ -306,5 +303,37 @@ struct BuilderTests {
         #expect(on == "Your *list*, sorted by aisle")
         #expect(Highlight.words(in: on)[1].highlighted)
         #expect(Highlight.toggle(1, in: on) == headline)
+    }
+
+    @Test func storedAccentWordsColorWithoutMarkup() {
+        var style = SetStyle()
+        style.accent = RGBColor(1, 0, 0)
+        let text = ShotRenderer.headlineText("Track every trip", accents: ["TRIP"], style: style, size: 100)
+        #expect(text.string == "Track every trip")
+        #expect(text.attribute(.foregroundColor, at: 12, effectiveRange: nil) as? NSColor == style.accent.nsColor)
+        #expect(text.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor == style.foreground.nsColor)
+    }
+
+    @Test func setHeadlinesShareLineCount() throws {
+        var long = try fixture()
+        long.headline = "See where your money goes every week"
+        var short = try fixture()
+        short.headline = "Track every trip"
+        let style = SetStyle()
+        let band = ShotRenderer.captionBand(shots: [long, short], style: style)
+        #expect(band.lines == 2)
+        let source = CGSize(width: 1320, height: 2868)
+        let a = ShotRenderer.compose(shot: long, style: style, sourceSize: source, captionBand: band)
+        let b = ShotRenderer.compose(shot: short, style: style, sourceSize: source, captionBand: band)
+        #expect(abs(a.headlineRect.height - b.headlineRect.height) < 1)
+        #expect(a.headlineRect.minY == b.headlineRect.minY)
+    }
+
+    @Test func shotsWithoutAccentsKeyStillDecode() throws {
+        let shot = try fixture()
+        var json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(shot)) as! [String: Any]
+        json.removeValue(forKey: "accents")
+        let decoded = try JSONDecoder().decode(Shot.self, from: JSONSerialization.data(withJSONObject: json))
+        #expect(decoded.accents.isEmpty && decoded.headline == shot.headline)
     }
 }

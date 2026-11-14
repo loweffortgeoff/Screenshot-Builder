@@ -35,7 +35,10 @@ struct SampleRenderTests {
             let url = samples.appendingPathComponent(String(format: "%02d.png", index + 1))
             guard FileManager.default.fileExists(atPath: url.path) else { continue }
             var shot = try Shot.importing(url)
-            shot.headline = caption.0
+            // Stored accent words, as the Highlight menu sets them.
+            let parts = caption.0.components(separatedBy: "*")
+            shot.headline = parts.joined()
+            shot.accents = parts.enumerated().filter { $0.offset % 2 == 1 }.flatMap { $0.element.split(separator: " ").map(String.init) }
             shot.subtitle = caption.1
             document.shots.append(shot)
         }

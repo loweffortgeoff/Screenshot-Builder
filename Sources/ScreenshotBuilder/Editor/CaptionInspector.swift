@@ -13,15 +13,23 @@ struct CaptionInspector: View {
                     let words = Highlight.words(in: shot.headline)
                     if words.isEmpty { Text("Type a headline first") }
                     ForEach(Array(words.enumerated()), id: \.offset) { index, word in
-                        Toggle(word.text, isOn: Binding(get: { word.highlighted },
-                                                        set: { _ in shot.headline = Highlight.toggle(index, in: shot.headline) }))
+                        let stored = shot.accents.contains { $0.caseInsensitiveCompare(word.text) == .orderedSame }
+                        Toggle(word.text, isOn: Binding(get: { word.highlighted || stored }, set: { _ in
+                            if word.highlighted {
+                                shot.headline = Highlight.toggle(index, in: shot.headline) // Typed *markup*.
+                            } else if stored {
+                                shot.accents.removeAll { $0.caseInsensitiveCompare(word.text) == .orderedSame }
+                            } else {
+                                shot.accents.append(word.text)
+                            }
+                        }))
                     }
                 } label: {
                     Label("Highlight", systemImage: "highlighter")
                 }
                 .menuStyle(.borderlessButton)
                 .fixedSize()
-                .help("Color words with the theme accent. You can also type *asterisks* around a word.")
+                .help("Color words with the theme accent.")
             }
             field("Subtitle", text: changed(\.subtitle), prompt: "Optional supporting line", lines: 1...3) { EmptyView() }
             if !style.layout.hasCaption {
