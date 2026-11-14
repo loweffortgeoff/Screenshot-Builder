@@ -1,6 +1,6 @@
 # Screenshot Builder — Pro framing pass
 
-Approved by Geoff on 2026-11-13. Branch `feature/pro-framing`, base `origin/main` @ 12b6a2e.
+Status: complete. Approved by Geoff on 2026-11-13. Final median 7.3; Geoff then opened chapter 2 (`2026-11-13-per-shot-layouts.md`). Branch `feature/pro-framing`, base `origin/main` @ 12b6a2e.
 
 ## Context
 

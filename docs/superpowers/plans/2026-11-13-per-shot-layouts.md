@@ -1,6 +1,6 @@
 # Screenshot Builder — Per-shot layouts (chapter 2)
 
-Status: approved 2026-11-13 (full-send); implemented; council below 8 after 3 rounds, escalated to Geoff. Branch `feature/pro-framing` (worktree `~/.t3/worktrees/Screenshot-Builder/pro-framing`), on top of `a50d028`. `main` stays untouched. Nothing is pushed or merged.
+Status: complete. Approved 2026-11-13 (full-send). Final council median 7.5, below the 8.0 target; Geoff accepted 7.5 on 2026-11-13. Remaining gaps: `docs/superpowers/specs/2026-11-13-chapter-3-canvas-and-compositions.md`.
 
 ## Context
 
@@ -82,7 +82,7 @@ Simulators: I take the iPad Pro 13-inch (M5), `364195A0`, iOS 27.2, and announce
 | 2 | c51d751 | 7.1 | 7.2 | 7.2 | 7.2 |
 | 3 (final) | 02f969c | 7.1 | 7.6 | 7.5 | 7.5 |
 
-Result: below 8.0 after the 3-round cap. Escalated on 2026-11-13.
+Result: below 8.0 after the 3-round cap. Escalated on 2026-11-13; Geoff accepted 7.5 the same day.
 
 Themes that repeat across all three judges in round 3:
 - Zoom: the crop still cuts a line ("Spend Over Time") on the List Happens Spending screen, and the magnification is low.

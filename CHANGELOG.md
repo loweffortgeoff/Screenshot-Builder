@@ -1,7 +1,9 @@
 # Changelog
 
 ## Unreleased
-- Added per-shot arrangements (Tilt, Hero, Duo, Zoom callout with an Auto region), a capture-fit warning, retuned theme contrast, and a clean bleed edge.
+- Added optional per-shot badges above the headline.
+- Added per-shot arrangements (Tilt, Hero, Duo, Zoom callout with an Auto region and row-snapped crop), Vary layouts and Make uniform, a capture-fit warning, retuned theme contrast, and a clean bleed edge.
+- UI council median rose from 3.8 (v1) to 7.5 across both chapters; Geoff accepted 7.5 on 2026-11-13.
 - Added layout templates with bleed variants, a whole-set filmstrip, composed sidebar thumbnails, a sectioned inspector with visual pickers, a grouped size menu, and a prominent Export button.
 - Added eight macOS font families, weight, size, and alignment controls, accent words with *asterisks*, balanced line breaks, and a set-wide caption band that keeps headlines aligned.
 - Added measured device frames for iPhone, iPad, and MacBook with Dynamic Island, camera notch, side buttons, display-corner clipping, landscape rotation, and sampled finishes.
