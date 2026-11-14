@@ -371,6 +371,38 @@ struct ChapterFourTests {
         #expect(!Look.all.contains { $0.matches(base) }, "the default style is no look")
     }
 
+    // MARK: Zoom card
+
+    @Test func zoomCropNeverEndsOnASectionHeading() throws {
+        // A card, then a short heading just above a taller card, as on List Happens shot 4 ("Recent Trips").
+        let blocks = [ContentBlock(top: 0.30, bottom: 0.40), ContentBlock(top: 0.43, bottom: 0.445), ContentBlock(top: 0.455, bottom: 0.60)]
+        let profile = [Float](repeating: 0, count: 1000)
+        let band = Shot.cropBand(blocks: blocks, profile: profile, target: 0.40, maxHeight: 0.24)
+        #expect(band.bottom < 0.43 || band.bottom > 0.60, "the band ends before the heading or after its rows: \(band)")
+        #expect(band.top <= 0.30 && band.bottom >= 0.40, "the first card stays whole: \(band)")
+        // A heading whose rows fit is taken with them.
+        let roomy = Shot.cropBand(blocks: blocks, profile: profile, target: 0.45, maxHeight: 0.40)
+        #expect(roomy.bottom >= 0.60 || roomy.bottom < 0.43, "\(roomy)")
+        // Growing a band to fill the image area does not add a heading below it on its own; it grows upward instead.
+        let withAbove = [ContentBlock(top: 0.20, bottom: 0.26)] + blocks
+        let grown = Shot.extendedBand((0.285, 0.415), blocks: withAbove, maxHeight: 0.24, accepts: { _ in true })
+        #expect(grown.map { $0.bottom < 0.43 && $0.top < 0.285 } == true, "\(String(describing: grown))")
+    }
+
+    @Test func zoomCardTakesAThemeTintAndASofterShadow() throws {
+        for theme in Theme.all {
+            let tint = ShotRenderer.cardTint(theme.accent)
+            for (t, a) in [(tint.red, theme.accent.red), (tint.green, theme.accent.green), (tint.blue, theme.accent.blue)] {
+                #expect(t >= a - 1e-9 && t <= 1 + 1e-9, "\(theme.name): between the accent and white")
+            }
+            #expect(tint.luminance > 0.35, "\(theme.name): light enough to read as a card edge")
+        }
+        #expect(ShotRenderer.cardShadowAlpha == 0.28)
+        // The marker rule (R1.6) is unchanged: at most 40% of the card border.
+        let border = ShotRenderer.cardBorder(unit: 1320)
+        #expect(ShotRenderer.markerStrokeWidth(cardBorder: border) <= border * 0.4)
+    }
+
     @Test func decorRoundTrips() throws {
         var document = ShotDocument()
         document.style.decor.eyebrow = .numbered

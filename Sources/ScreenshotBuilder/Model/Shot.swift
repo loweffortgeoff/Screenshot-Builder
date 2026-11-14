@@ -329,13 +329,18 @@ extension Shot {
         return best ?? limit
     }
 
+    /// The row variation above which a row counts as content. Low enough that faint secondary text (dim captions,
+    /// tinted labels) counts.
+    static func busyLevel(_ profile: [Float]) -> Float {
+        guard profile.count > 1 else { return 0.8 }
+        return max(0.8, profile.sorted()[Int(Float(profile.count - 1) * 0.95)] * 0.045)
+    }
+
     /// Busy rows grouped into blocks. Quiet runs shorter than 1% of the capture height stay inside a block.
     static func contentBlocks(profile: [Float]) -> [ContentBlock] {
         let n = profile.count
         guard n > 1 else { return [] }
-        let sorted = profile.sorted()
-        // Low enough that faint secondary text (dim captions, tinted labels) counts as content.
-        let busyLevel = max(0.8, sorted[Int(Float(n - 1) * 0.95)] * 0.045)
+        let busyLevel = Shot.busyLevel(profile)
         let minGap = Int((Double(n) * 0.01).rounded(.up))
         func block(_ first: Int, _ last: Int) -> ContentBlock { ContentBlock(top: CGFloat(first) / CGFloat(n), bottom: CGFloat(last + 1) / CGFloat(n)) }
         var blocks: [ContentBlock] = []
@@ -347,6 +352,14 @@ extension Shot {
         }
         if let first = start { blocks.append(block(first, lastBusy)) }
         return blocks
+    }
+
+    /// A section heading: a short block sitting just above a taller one. A band that ends on it shows the heading
+    /// without its rows (chapter 4 calibration: "Recent Trips" on List Happens shot 4).
+    static func isLeadIn(_ j: Int, blocks: [ContentBlock]) -> Bool {
+        guard j + 1 < blocks.count else { return false }
+        let height = blocks[j].bottom - blocks[j].top, next = blocks[j + 1]
+        return height < 0.03 && next.top - blocks[j].bottom < 0.035 && next.bottom - next.top > height * 1.5
     }
 
     /// The shortest Zoom crop, as a fraction of the capture height, for automatic and dragged regions alike.
@@ -369,17 +382,37 @@ extension Shot {
             let top = min(max(target - height / 2, 0.04), 0.96 - height)
             return (top, top + height)
         }
+        func leadsIn(_ j: Int) -> Bool { isLeadIn(j, blocks: blocks) }
+        // A heading can also sit less than 1% below the rows above it, so it joins their block. When the band's last block
+        // ends in a short line, set off by a quiet run, that leads straight into the next block, the band stops before it.
+        func trimmingTrailingHeading(_ band: (top: CGFloat, bottom: CGFloat)) -> (top: CGFloat, bottom: CGFloat) {
+            guard let j = blocks.lastIndex(where: { $0.top < band.bottom }), j + 1 < blocks.count,
+                  blocks[j + 1].top - blocks[j].bottom < 0.035, profile.count > 1 else { return band }
+            let n = CGFloat(profile.count), level = busyLevel(profile)
+            let first = Int((blocks[j].top * n).rounded(.down)), last = min(profile.count - 1, Int((blocks[j].bottom * n).rounded(.up)) - 1)
+            guard first < last else { return band }
+            // Walk up from the block's last row: the final line, then the quiet run above it.
+            var row = last
+            while row > first && profile[row] > level { row -= 1 }
+            let lineTop = row + 1
+            var gapTop = row
+            while gapTop > first && profile[gapTop] <= level { gapTop -= 1 }
+            let line = CGFloat(last + 1 - lineTop) / n, gap = CGFloat(row - gapTop) / n
+            guard line < 0.025, gap >= 0.004, gapTop > first else { return band }
+            let cut = (CGFloat(gapTop + 1) / n + CGFloat(lineTop) / n) / 2
+            return cut - band.top >= minHeight ? (band.top, cut) : band
+        }
         var best: (band: (top: CGFloat, bottom: CGFloat), distance: CGFloat, spread: CGFloat)?
         for i in first...last {
             for j in i...last {
                 let band = edges(i, j), height = band.bottom - band.top
                 if height > maxHeight { break }
-                guard height >= minHeight else { continue }
+                guard height >= minHeight, !leadsIn(j) else { continue }
                 let distance = abs((band.top + band.bottom) / 2 - target), spread = abs(height - 0.17)
                 if best == nil || (distance, spread) < (best!.distance, best!.spread) { best = (band, distance, spread) }
             }
         }
-        if let best { return best.band }
+        if let best { return trimmingTrailingHeading(best.band) }
         let near = usable.min { abs((blocks[$0].top + blocks[$0].bottom) / 2 - target) < abs((blocks[$1].top + blocks[$1].bottom) / 2 - target) }!
         let block = blocks[near], center = (block.top + block.bottom) / 2
         if block.bottom - block.top <= maxHeight {
@@ -412,7 +445,8 @@ extension Shot {
         // The new edge sits in the gap beside the block, as close as it can to the usual margin, but never past the cap.
         let clear: CGFloat = 0.003
         var candidates: [(top: CGFloat, bottom: CGFloat)] = []
-        if let below = blocks.firstIndex(where: { $0.top >= band.bottom - slack }), blocks[below].bottom <= 0.885 {
+        if let below = blocks.firstIndex(where: { $0.top >= band.bottom - slack }), blocks[below].bottom <= 0.885,
+           !isLeadIn(below, blocks: blocks) {
             let edge = min(highLimit(below), blocks[below].bottom + margin, band.top + maxHeight)
             if edge >= blocks[below].bottom + clear { candidates.append((band.top, edge)) }
         }
