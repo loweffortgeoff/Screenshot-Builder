@@ -1,7 +1,6 @@
 # TODO
 
 ## Next
-- Chapter 4 hands-on check (Geoff, about 25 minutes): `docs/superpowers/plans/2026-11-14-chapter-4-hands-on.md`. Then Geoff decides the merge of `feature/chapter-4`.
 - Chapter 4 open call (Geoff): the Style tab still scrolls at 1440 × 920 (spec R6.4 not met). Keep it, or move the shot section to its own place.
 - iPad acceptance: not tested by Geoff (2026-11-14, no iPad Pro on hand). iPad output can be checked with iPad Pro simulator captures; Geoff's acceptance stays open.
 
@@ -14,6 +13,7 @@
 - Outside v1: freeform editing, layers, stickers, AI copy, localization management, and direct upload. These do not serve the initial fixed-layout workflow.
 
 ## Done
+- 2026-11-14 — Chapter 4 hands-on check passed (Geoff, 29 of 30 items; his question on the scope headers answered: they are labels, not controls). Merged to `main` by fast-forward at `69a6012`; branch and worktree removed.
 - 2026-11-14 — Chapter 4 implemented on `feature/chapter-4` (M0 to M8, M10): judge calibration (Sol), Lead, decorations and format 5, backdrops and hue shift, six starter looks, editor polish, Zoom card tint and crop fix; M7 found no frame defects. Code review by code-reviewer and Fable; confirmed bugs fixed in separate commits. M9 (council review) dropped by Geoff.
 - 2026-11-14 — Chapter 4 spec and plan approved by Geoff (Q1 B, Q2 keep 1.6×, defaults for Q3 to Q7).
 - 2026-11-14 — Chapter 3 hands-on acceptance passed (Geoff). The Set view drag and the Zoom ring fixes are in `fc34097` and `79a6186`. Pinch zoom is not scripted.
