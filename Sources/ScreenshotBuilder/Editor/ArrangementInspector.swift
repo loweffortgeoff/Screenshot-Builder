@@ -10,6 +10,16 @@ struct ArrangementInspector: View {
 
     var body: some View {
         Section {
+            if style.layout.hasCaption {
+                Picker("Composition", selection: $shot.composition) {
+                    Text("Follow set (\(style.composition.rawValue))").tag(CaptionComposition?.none)
+                    Divider()
+                    ForEach(CaptionComposition.allCases) { Label($0.rawValue, systemImage: $0.symbol).tag(CaptionComposition?.some($0)) }
+                }
+                if let note = compositionNote {
+                    Text(note).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+            }
             ArrangementPicker(arrangement: $shot.arrangement)
             if shot.arrangement == .duo {
                 Picker("Back screen", selection: $shot.companion) {
@@ -84,6 +94,18 @@ struct ArrangementInspector: View {
             Text(fitNote).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         } header: {
             Text("Shot \(position) on the Mac screen")
+        }
+    }
+
+    /// Says why the shot draws as Stacked when its composition does not apply.
+    private var compositionNote: String? {
+        let wanted = shot.composition ?? style.composition
+        guard wanted != .stacked, style.effectiveComposition(for: shot) == .stacked else { return nil }
+        switch wanted {
+        case .bigNumber: return "Big number needs a stat. Add one in the Caption tab; until then this shot uses Stacked."
+        case .sideBySide: return "Side by side does not fit \(shot.arrangement == .duo ? "Duo" : "Zoom"), so this shot uses Stacked."
+        case .overlay: return "Overlay would cover the Zoom card, so this shot uses Stacked."
+        default: return nil
         }
     }
 

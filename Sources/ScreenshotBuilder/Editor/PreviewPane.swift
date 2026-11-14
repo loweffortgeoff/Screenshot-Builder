@@ -96,7 +96,9 @@ struct PreviewPane: View {
         .onTapGesture(count: 2) { location in
             let point = CGPoint(x: location.x / scale, y: location.y / scale)
             guard let layout, style.layout.hasCaption else { return }
-            let targets: [(CanvasText, CGRect)] = [(.badge, layout.badgeRect), (.headline, layout.headlineRect), (.subtitle, layout.subtitleRect)]
+            let targets: [(CanvasText, CGRect)] = [(.badge, layout.badgeRect), (.stat, layout.statRect),
+                                                   (.headline, layout.headlineRect), (.subtitle, layout.subtitleRect)]
+                .filter { !$0.1.isEmpty }
             if let hit = targets.first(where: { $0.1.insetBy(dx: -12, dy: -8).contains(point) }) { beginEditing(hit.0, shot: shot) }
         }
         .onTapGesture(count: 1) { location in
@@ -159,18 +161,22 @@ struct PreviewPane: View {
                 .allowsHitTesting(false)
         }
         if let editing, let layout {
-            let metrics = ShotRenderer.CaptionMetrics(style: style)
+            let metrics = ShotRenderer.CaptionMetrics(style: style, composition: layout.composition,
+                                                      headScale: captionBand?.group(for: layout.composition)?.headScale ?? 1)
             let rect = editorRect(editing, layout: layout, metrics: metrics)
             let font: NSFont = switch editing {
             case .headline: style.headlineFont(size: metrics.headSize * scale)
             case .subtitle: style.subtitleFont(size: metrics.subSize * scale)
             case .badge: style.font.font(size: max(11, metrics.subSize * 0.62 * scale), weight: CaptionWeight.bold)
+            case .stat: ShotRenderer.statFont(style: style, size: metrics.statSize * scale)
             }
+            let centered = style.alignment == .center && editing != .badge
+                && layout.composition != .sideBySide
             TextField(editing.title, text: $draft, axis: .vertical)
                 .textFieldStyle(.plain)
                 .font(Font(font))
-                .foregroundStyle(style.foreground.color)
-                .multilineTextAlignment(style.alignment == .center && editing != .badge ? .center : .leading)
+                .foregroundStyle(editing == .stat ? style.accent.color : style.foreground.color)
+                .multilineTextAlignment(centered ? .center : .leading)
                 .focused($editorFocused)
                 .autocorrectionDisabled()
                 .modifier(NoWritingTools())
@@ -189,10 +195,14 @@ struct PreviewPane: View {
 
     /// The editor spans the full text measure, so a longer edit has room before it wraps.
     private func editorRect(_ text: CanvasText, layout: ShotRenderer.Composition, metrics: ShotRenderer.CaptionMetrics) -> CGRect {
-        let x = (style.size.width - metrics.textWidth) / 2
+        // Each composition has its own text column; Stacked's is the centered measure.
+        let column = layout.textColumn.width > 0 ? layout.textColumn
+            : CGRect(x: (style.size.width - metrics.textWidth) / 2, y: 0, width: metrics.textWidth, height: 0)
+        let x = column.minX, width = column.width
         switch text {
-        case .headline: return CGRect(x: x, y: layout.headlineRect.minY, width: metrics.textWidth, height: layout.headlineRect.height)
-        case .subtitle: return CGRect(x: x, y: layout.subtitleRect.minY, width: metrics.textWidth, height: layout.subtitleRect.height)
+        case .headline: return CGRect(x: x, y: layout.headlineRect.minY, width: width, height: layout.headlineRect.height)
+        case .subtitle: return CGRect(x: x, y: layout.subtitleRect.minY, width: width, height: layout.subtitleRect.height)
+        case .stat: return CGRect(x: x, y: layout.statRect.minY, width: width, height: layout.statRect.height)
         case .badge: return CGRect(x: layout.badgeRect.minX, y: layout.badgeRect.minY, width: max(layout.badgeRect.width, metrics.textWidth * 0.4),
                                    height: layout.badgeRect.height)
         }
@@ -319,12 +329,12 @@ struct PreviewPane: View {
 
 /// Caption text that can be edited in place on the canvas.
 enum CanvasText {
-    case headline, subtitle, badge
+    case headline, subtitle, badge, stat
     var keyPath: WritableKeyPath<Shot, String> {
-        switch self { case .headline: \.headline; case .subtitle: \.subtitle; case .badge: \.badge }
+        switch self { case .headline: \.headline; case .subtitle: \.subtitle; case .badge: \.badge; case .stat: \.stat }
     }
     var title: String {
-        switch self { case .headline: "Headline"; case .subtitle: "Subtitle"; case .badge: "Badge" }
+        switch self { case .headline: "Headline"; case .subtitle: "Subtitle"; case .badge: "Badge"; case .stat: "Stat" }
     }
 }
 

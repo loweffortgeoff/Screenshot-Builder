@@ -31,13 +31,19 @@ struct StyleInspector: View {
     @ViewBuilder private var layoutSection: some View {
         Section("Layout") {
             LayoutPicker(layout: $style.layout)
+            if style.layout.hasCaption {
+                Picker("Composition", selection: $style.composition) {
+                    ForEach(CaptionComposition.allCases) { Label($0.rawValue, systemImage: $0.symbol).tag($0) }
+                }
+                .help("How the caption and the device share the canvas. Each shot can override it.")
+            }
             if let varyLayouts, let makeUniform {
                 HStack {
                     Button { varyLayouts() } label: { Label("Vary layouts", systemImage: "wand.and.stars") }
-                        .help("Give each shot a different arrangement: tilt, duo, zoom, hero")
+                        .help("Give each shot a different composition and arrangement: side by side, duo, big number, zoom")
                     Spacer()
                     Button("Make uniform", action: makeUniform)
-                        .help("Set every shot back to the standard arrangement")
+                        .help("Set every shot back to the set's composition and the standard arrangement")
                 }
             }
         }

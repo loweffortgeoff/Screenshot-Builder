@@ -42,6 +42,9 @@ struct CaptionInspector: View {
                 .fixedSize(horizontal: false, vertical: true)
             field("Subtitle", text: changed(\.subtitle), prompt: "Optional supporting line", lines: 2...3) { EmptyView() }
             field("Badge", text: changed(\.badge), prompt: "Optional label, such as NEW", lines: 1...1) { EmptyView() }
+            if style.layout.hasCaption && (shot.composition ?? style.composition) == .bigNumber {
+                field("Stat", text: changed(\.stat), prompt: "A big number, such as 2×, 10k, or $0", lines: 1...1) { EmptyView() }
+            }
             if !style.layout.hasCaption {
                 Label("Captions are saved but hidden in this layout.", systemImage: "eye.slash")
                     .font(.caption).foregroundStyle(.secondary)

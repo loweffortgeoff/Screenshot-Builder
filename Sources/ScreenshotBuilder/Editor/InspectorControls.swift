@@ -1,5 +1,17 @@
 import SwiftUI
 
+extension CaptionComposition {
+    var symbol: String {
+        switch self {
+        case .stacked: "rectangle.split.1x2"
+        case .sideBySide: "rectangle.split.2x1"
+        case .bigNumber: "number"
+        case .overlay: "rectangle.bottomhalf.inset.filled"
+        case .textOnly: "textformat"
+        }
+    }
+}
+
 /// A font family drawn in itself: "Ag" over the family name.
 struct FontTile: View {
     let font: CaptionFont
