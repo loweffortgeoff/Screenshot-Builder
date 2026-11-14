@@ -11,18 +11,14 @@ struct ArrangementInspector: View {
     var body: some View {
         Section {
             if style.layout.hasCaption {
-                // Named apart from the set's picker above, so the two do not read as duplicates.
-                Picker("This shot", selection: $shot.composition) {
-                    Text("Follow set (\(style.composition.title(in: style)))").tag(CaptionComposition?.none)
-                    Divider()
-                    ForEach(CaptionComposition.allCases) {
-                        Label($0.title(in: style), systemImage: $0.symbol(in: style)).tag(CaptionComposition?.some($0))
-                    }
-                }
+                Text("Composition").font(.caption.weight(.medium)).foregroundStyle(.secondary)
+                CompositionPicker(selection: $shot.composition, style: style, followTitle: "Set")
+                    .help("Follow the set's composition (\(style.composition.title(in: style))), or pick one for this shot.")
                 if let note = compositionNote {
                     Text(note).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
             }
+            Text("Arrangement").font(.caption.weight(.medium)).foregroundStyle(.secondary)
             ArrangementPicker(arrangement: $shot.arrangement)
             if shot.arrangement == .duo {
                 Picker("Back screen", selection: $shot.companion) {
@@ -71,7 +67,7 @@ struct ArrangementInspector: View {
                 }
             }
         } header: {
-            Text("Shot \(position) arrangement")
+            ScopeHeader(title: "Shot \(position)", scope: "This shot only")
         }
         if style.preset == .mac && style.frameStyle == .device { macFitSection }
     }
@@ -97,7 +93,7 @@ struct ArrangementInspector: View {
             }
             Text(fitNote(cropped: isCropped)).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         } header: {
-            Text("Shot \(position) on the Mac screen")
+            ScopeHeader(title: "Shot \(position) on the Mac screen", scope: "This shot only")
         }
     }
 

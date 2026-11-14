@@ -26,24 +26,24 @@ struct StyleInspector: View {
         case .caption: textSection
         case .style:
             if let applyLook {
-                Section("Looks") { LookPicker(style: style, shot: lookShot, apply: applyLook) }
+                Section { LookPicker(style: style, shot: lookShot, apply: applyLook) } header: {
+                    ScopeHeader(title: "Looks", scope: "All shots")
+                }
             }
             layoutSection
-            if let arrangement { arrangement }
             themeSection
-            backgroundSection
+            if let arrangement { arrangement }
         case .device: deviceSection
         }
     }
 
     @ViewBuilder private var layoutSection: some View {
-        Section("Layout") {
+        Section {
             LayoutPicker(layout: $style.layout)
             if style.layout.hasCaption {
-                Picker("Composition", selection: $style.composition) {
-                    ForEach(CaptionComposition.allCases) { Label($0.title(in: style), systemImage: $0.symbol(in: style)).tag($0) }
-                }
-                .help("How the caption and the device share the canvas. Each shot can override it.")
+                CompositionPicker(selection: Binding(get: { style.composition }, set: { if let value = $0 { style.composition = value } }),
+                                  style: style)
+                    .help("How the caption and the device share the canvas. Each shot can override it.")
             }
             if let varyLayouts, let makeUniform {
                 HStack {
@@ -54,6 +54,8 @@ struct StyleInspector: View {
                         .help("Set every shot back to the set's composition and the standard arrangement")
                 }
             }
+        } header: {
+            ScopeHeader(title: "Layout and composition", scope: "All shots")
         }
     }
 
@@ -76,19 +78,18 @@ struct StyleInspector: View {
                     .disabled(style.spanSet)
                     .help(style.spanSet ? "Flow across the set joins neighbours; a hue shift would break the seams."
                                         : "Each shot turns the background hue a step further, while text stays readable.")
+                Divider()
+                backgroundControls
             }
         } header: {
-            HStack {
-                Text("Theme")
-                Spacer()
-                if style.theme == nil { Text("Custom").foregroundStyle(.secondary) }
-            }
+            ScopeHeader(title: style.theme == nil ? "Theme (custom)" : "Theme", scope: "All shots")
         }
 
     }
 
-    @ViewBuilder private var backgroundSection: some View {
-        Section("Background") {
+    /// The background fill, its colors, angle, grain, and flow, inside Advanced background.
+    @ViewBuilder private var backgroundControls: some View {
+        Group {
             Picker("Fill", selection: kind) {
                 ForEach(BackgroundKind.allCases) { Text($0.rawValue).tag($0) }
             }
@@ -149,7 +150,7 @@ struct StyleInspector: View {
             ColorPicker("Text color", selection: color(\.foreground), supportsOpacity: false)
             ColorPicker("Accent color", selection: color(\.accent), supportsOpacity: false)
         } header: {
-            Text("Text")
+            ScopeHeader(title: "Text", scope: "All shots")
         }
         .disabled(style.layout == .imageOnly)
 

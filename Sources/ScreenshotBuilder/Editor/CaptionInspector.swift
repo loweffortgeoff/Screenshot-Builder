@@ -39,7 +39,7 @@ struct CaptionInspector: View {
             Toggle("Accent shapes", isOn: $decor.shapes)
                 .help("A small pill and square in the top corner. They hide when the caption or device needs the space.")
         } header: {
-            Text("Decorations (set)")
+            ScopeHeader(title: "Decorations", scope: "All shots")
         }
     }
 
@@ -95,6 +95,7 @@ struct CaptionInspector: View {
             HStack {
                 Text("Shot \(position)")
                 Spacer()
+                Text("This shot only").font(.caption).foregroundStyle(.secondary)
                 Button(action: replaceImage) { Label("Replace Image", systemImage: "photo.badge.arrow.down") }
                     .buttonStyle(.borderless)
                     .labelStyle(.iconOnly)

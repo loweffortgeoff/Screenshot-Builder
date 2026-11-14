@@ -12,8 +12,9 @@ struct EditorView: View {
     @State private var exporting = false
     @State private var thumbnails: [UUID: NSImage] = [:]
     @State private var mismatched: Set<UUID> = []
-    @State private var tab: InspectorTab = .style
-    @State private var mode: CanvasMode = .canvas
+    // Window captures for reviews open a given tab or Set view with `-SBInspectorTab Caption` or `-SBCanvasMode set`.
+    @State private var tab: InspectorTab = UserDefaults.standard.string(forKey: "SBInspectorTab").flatMap(InspectorTab.init) ?? .style
+    @State private var mode: CanvasMode = UserDefaults.standard.string(forKey: "SBCanvasMode") == "set" ? .set : .canvas
     /// `nil` fits the pane. See `CanvasZoom`.
     @State private var zoom: CGFloat?
     @State private var fitZoom: CGFloat = 0.5
@@ -237,7 +238,8 @@ struct EditorView: View {
             }
             .formStyle(.grouped)
         }
-        .frame(minWidth: 300, idealWidth: 340, maxWidth: 400)
+        // One width for every tab and after Set view, so the canvas does not jump.
+        .frame(width: 340)
     }
 
     /// The selected shot's arrangement controls, placed by the Style tab under Layout.
