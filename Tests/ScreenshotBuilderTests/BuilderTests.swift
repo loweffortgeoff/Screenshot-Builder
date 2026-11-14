@@ -418,4 +418,31 @@ struct BuilderTests {
             #expect(c.subtitleRect.maxY <= device.rect.minY || warns.contains { $0.contains("too long") })
         }
     }
+
+    @Test func everyThemePassesLargeTextContrast() {
+        func luminance(_ c: ScreenshotBuilder.RGBColor) -> Double {
+            func channel(_ v: Double) -> Double { v <= 0.03928 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4) }
+            return 0.2126 * channel(c.red) + 0.7152 * channel(c.green) + 0.0722 * channel(c.blue)
+        }
+        func ratio(_ a: ScreenshotBuilder.RGBColor, _ b: ScreenshotBuilder.RGBColor) -> Double {
+            let (l1, l2) = (luminance(a), luminance(b))
+            return (max(l1, l2) + 0.05) / (min(l1, l2) + 0.05)
+        }
+        func blend(_ top: ScreenshotBuilder.RGBColor, over base: ScreenshotBuilder.RGBColor, alpha: Double) -> ScreenshotBuilder.RGBColor {
+            ScreenshotBuilder.RGBColor(top.red * alpha + base.red * (1 - alpha), top.green * alpha + base.green * (1 - alpha),
+                     top.blue * alpha + base.blue * (1 - alpha))
+        }
+        var failures: [String] = []
+        for theme in Theme.all {
+            for stop in theme.background.colors {
+                let head = ratio(theme.foreground, stop)
+                let sub = ratio(blend(theme.foreground, over: stop, alpha: 0.82), stop)
+                let accent = ratio(theme.accent, stop)
+                if head < 3 || sub < 3 || accent < 3 {
+                    failures.append(String(format: "%@ head %.2f sub %.2f accent %.2f", theme.name, head, sub, accent))
+                }
+            }
+        }
+        #expect(failures.isEmpty, "\(failures)")
+    }
 }
