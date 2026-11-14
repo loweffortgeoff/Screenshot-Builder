@@ -33,6 +33,8 @@ struct PreviewPane: View {
     @State private var editing: CanvasText?
     @State private var draft = ""
     @State private var draftStart = ""
+    /// Set when an edit starts: the eyebrow being edited is the set's app name, not the shot's section.
+    @State private var editingAppName = false
     @FocusState private var editorFocused: Bool
     @State private var drag: (target: DragTarget, translation: CGSize)?
     /// The Zoom part under the pointer, for the hover cues and cursor.
@@ -293,7 +295,8 @@ struct PreviewPane: View {
     private func beginEditing(_ text: CanvasText, shot: Shot) {
         // Opening a second field commits the first, like any other click-away.
         if editing != nil { commitEdit(shot: shot) }
-        draft = editsAppName(text) ? style.decor.appName : shot[keyPath: text.keyPath]
+        editingAppName = editsAppName(text)
+        draft = editingAppName ? style.decor.appName : shot[keyPath: text.keyPath]
         draftStart = draft
         editing = text
         DispatchQueue.main.async { editorFocused = true }
@@ -305,7 +308,7 @@ struct PreviewPane: View {
         // An untouched editor writes nothing, so a stored newline is not rewritten and the document stays clean.
         guard draft != draftStart else { return }
         let text = editing == .headline ? draft : draft.replacingOccurrences(of: "\n", with: " ")
-        if editsAppName(editing) {
+        if editing == .eyebrow && editingAppName {
             if style.decor.appName != text { updateAppName(text) }
             return
         }
