@@ -17,6 +17,17 @@ enum ShotRenderer {
         var headline: NSAttributedString
         var subtitle: NSAttributedString
         var warnings: [String]
+        /// Present when the style draws a device frame.
+        var device: DeviceFrame?
+        /// Display corner radius for the capture, in canvas points.
+        var cornerRadius: CGFloat = 0
+    }
+
+    /// Largest rect with `aspect`'s proportions that fits in `box`, centered.
+    static func fit(_ aspect: CGSize, in box: CGRect) -> CGRect {
+        let scale = min(box.width / aspect.width, box.height / aspect.height)
+        let size = CGSize(width: aspect.width * scale, height: aspect.height * scale)
+        return CGRect(x: box.midX - size.width / 2, y: box.midY - size.height / 2, width: size.width, height: size.height)
     }
 
     static func compose(shot: Shot, style: SetStyle, sourceSize: CGSize) -> Composition {
@@ -37,13 +48,28 @@ enum ShotRenderer {
         let separation = hasCaption ? unit * 0.025 : 0
         let imageArea = CGRect(x: margin, y: margin + (style.layout == .above ? captionHeight + separation : 0),
                                width: textWidth, height: size.height - 2 * margin - captionHeight - separation)
-        let border = style.frame ? unit * 0.014 : 0
-        let available = CGSize(width: max(1, imageArea.width * style.imageScale - border * 2),
-                               height: max(1, imageArea.height * style.imageScale - border * 2))
-        let fit = min(available.width / sourceSize.width, available.height / sourceSize.height)
-        let imageSize = CGSize(width: sourceSize.width * fit, height: sourceSize.height * fit)
-        let rect = CGRect(x: imageArea.midX - imageSize.width / 2, y: imageArea.midY - imageSize.height / 2,
-                          width: imageSize.width, height: imageSize.height)
+        let available = imageArea.insetBy(dx: imageArea.width * (1 - style.imageScale) / 2,
+                                          dy: imageArea.height * (1 - style.imageScale) / 2)
+        let spec = DeviceSpec.for(style.preset)
+        var device: DeviceFrame?
+        let rect: CGRect
+        var cornerRadius: CGFloat = 0
+        switch style.frameStyle {
+        case .device:
+            let rotated = style.landscape && style.preset != .mac
+            let frame = DeviceFrame(spec: spec, landscape: rotated,
+                                    rect: Self.fit(DeviceFrame.outerSize(spec, landscape: rotated), in: available))
+            device = frame
+            // Captures keep their proportions; a mismatched capture sits on black glass.
+            rect = Self.fit(sourceSize, in: frame.screenRect)
+        case .rounded:
+            rect = Self.fit(sourceSize, in: available)
+            let ratio = spec.screenRadius > 0 ? spec.screenRadius / min(spec.screen.width, spec.screen.height) : 0.04
+            cornerRadius = min(rect.width, rect.height) * ratio
+        case .none:
+            rect = Self.fit(sourceSize, in: available)
+        }
+        let fit = rect.width / sourceSize.width
         let captionTop = style.layout == .below ? size.height - margin - captionHeight : margin
         let textY = captionTop + max(0, (captionHeight - needed) / 2)
         var warnings: [String] = []
@@ -57,7 +83,8 @@ enum ShotRenderer {
         return Composition(imageRect: rect,
                            headlineRect: CGRect(x: margin, y: textY, width: textWidth, height: headHeight),
                            subtitleRect: CGRect(x: margin, y: textY + headHeight + gap, width: textWidth, height: subHeight),
-                           headline: headline, subtitle: subtitle, warnings: warnings)
+                           headline: headline, subtitle: subtitle, warnings: warnings,
+                           device: device, cornerRadius: cornerRadius)
     }
 
     static func warnings(shot: Shot, style: SetStyle) -> [String] {
@@ -86,29 +113,35 @@ enum ShotRenderer {
         cg.scaleBy(x: CGFloat(width) / size.width, y: -CGFloat(height) / size.height)
         drawBackground(style.background, in: cg, size: size, position: style.spanSet ? position : .single)
         let composition = compose(shot: shot, style: style, sourceSize: CGSize(width: source.width, height: source.height))
+        let image = NSImage(cgImage: source, size: CGSize(width: source.width, height: source.height))
+        let drawCapture = {
+            image.draw(in: composition.imageRect, from: .zero, operation: .sourceOver, fraction: 1,
+                       respectFlipped: true, hints: [.interpolation: NSImageInterpolation.high])
+        }
+        let silhouette = composition.device?.silhouette
+            ?? CGPath(roundedRect: composition.imageRect, cornerWidth: composition.cornerRadius,
+                      cornerHeight: composition.cornerRadius, transform: nil)
         if style.shadow {
             // Shadow offsets are in device pixels and ignore the flipped transform.
             let unit = min(size.width, size.height)
             let pixelScale = CGFloat(width) / size.width
-            let border = style.frame ? unit * 0.014 : 0
             cg.saveGState()
             cg.setShadow(offset: CGSize(width: 0, height: -unit * 0.022 * pixelScale), blur: unit * 0.06 * pixelScale,
                          color: CGColor(gray: 0, alpha: 0.38))
             cg.setFillColor(CGColor(gray: 0.08, alpha: 1))
-            let outer = composition.imageRect.insetBy(dx: -border, dy: -border)
-            cg.addPath(CGPath(roundedRect: outer, cornerWidth: border * 2, cornerHeight: border * 2, transform: nil))
+            cg.addPath(silhouette)
             cg.fillPath()
             cg.restoreGState()
         }
-        if style.frame {
-            let border = min(size.width, size.height) * 0.014
-            let outer = composition.imageRect.insetBy(dx: -border, dy: -border)
-            NSColor(white: 0.08, alpha: 1).setFill()
-            NSBezierPath(roundedRect: outer, xRadius: border * 2, yRadius: border * 2).fill()
+        if let device = composition.device {
+            device.draw(in: cg, finish: DeviceFinish.named(style.finish, for: device.spec.family), drawScreen: drawCapture)
+        } else {
+            cg.saveGState()
+            cg.addPath(silhouette)
+            cg.clip()
+            drawCapture()
+            cg.restoreGState()
         }
-        let image = NSImage(cgImage: source, size: CGSize(width: source.width, height: source.height))
-        image.draw(in: composition.imageRect, from: .zero, operation: .sourceOver, fraction: 1,
-                   respectFlipped: true, hints: [.interpolation: NSImageInterpolation.high])
         // AppKit text drawing needs the flipped context flag as well as the transform.
         NSGraphicsContext.current = NSGraphicsContext(cgContext: cg, flipped: true)
         if style.layout != .imageOnly {

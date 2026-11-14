@@ -41,7 +41,9 @@ struct SetStyle: Codable, Equatable {
     var foreground = Theme.all[1].foreground
     var accent = Theme.all[1].accent
     var imageScale = 0.94
-    var frame = false
+    var frameStyle: FrameStyle = .device
+    /// Device finish name; unknown names fall back to the family's first finish.
+    var finish = ""
     /// Soft shadow under the screenshot or device.
     var shadow = true
     /// Gradients run across the whole set, so neighbouring shots join up.
@@ -65,6 +67,8 @@ struct SetStyle: Codable, Equatable {
 
     init() {}
 
+    private enum LegacyKeys: String, CodingKey { case frame }
+
     /// Missing keys fall back to defaults, so version 1 projects still open.
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -83,7 +87,14 @@ struct SetStyle: Codable, Equatable {
         foreground = try c.decodeIfPresent(RGBColor.self, forKey: .foreground) ?? d.foreground
         accent = try c.decodeIfPresent(RGBColor.self, forKey: .accent) ?? foreground
         imageScale = try c.decodeIfPresent(Double.self, forKey: .imageScale) ?? d.imageScale
-        frame = try c.decodeIfPresent(Bool.self, forKey: .frame) ?? d.frame
+        if let value = try c.decodeIfPresent(FrameStyle.self, forKey: .frameStyle) {
+            frameStyle = value
+        } else {
+            // Version 1 stored a Bool "frame" for its simple device frame.
+            let legacy = try decoder.container(keyedBy: LegacyKeys.self)
+            frameStyle = (try legacy.decodeIfPresent(Bool.self, forKey: .frame) ?? false) ? .device : .none
+        }
+        finish = try c.decodeIfPresent(String.self, forKey: .finish) ?? d.finish
         shadow = try c.decodeIfPresent(Bool.self, forKey: .shadow) ?? false
         spanSet = try c.decodeIfPresent(Bool.self, forKey: .spanSet) ?? d.spanSet
     }

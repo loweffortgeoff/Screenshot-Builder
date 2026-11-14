@@ -65,8 +65,41 @@ struct StyleInspector: View {
             LabeledContent("Size") {
                 Slider(value: $style.imageScale, in: 0.5...1, step: 0.01).frame(maxWidth: 150)
             }
-            Toggle("Device frame", isOn: $style.frame)
             Toggle("Shadow", isOn: $style.shadow)
+        }
+
+        Section {
+            Picker("Frame", selection: $style.frameStyle) {
+                ForEach(FrameStyle.allCases) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            if style.frameStyle == .device {
+                let spec = DeviceSpec.for(style.preset)
+                let finishes = DeviceFinish.all(for: spec.family)
+                let current = DeviceFinish.named(style.finish, for: spec.family)
+                LabeledContent("Finish") {
+                    HStack(spacing: 8) {
+                        ForEach(finishes) { finish in
+                            Button { style.finish = finish.name } label: {
+                                Circle()
+                                    .fill(LinearGradient(colors: [finish.highlight.color, finish.metal.color, finish.shadow.color],
+                                                         startPoint: .topLeading, endPoint: .bottomTrailing))
+                                    .frame(width: 20, height: 20)
+                                    .overlay(Circle().strokeBorder(Color.primary.opacity(0.2), lineWidth: 1))
+                                    .padding(2)
+                                    .overlay(Circle().strokeBorder(current == finish ? Color.accentColor : .clear, lineWidth: 2))
+                            }
+                            .buttonStyle(.plain)
+                            .help(finish.name)
+                            .accessibilityLabel("\(finish.name) finish")
+                        }
+                    }
+                }
+                Text(current.name + " · " + spec.name).font(.caption).foregroundStyle(.secondary)
+            }
+        } header: {
+            Text("Frame")
         }
     }
 

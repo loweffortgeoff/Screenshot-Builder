@@ -26,6 +26,11 @@ struct SampleRenderTests {
         // Optional review knobs: SB_THEME=<theme name>, SB_SPAN=1.
         if let name = env["SB_THEME"], let theme = Theme.all.first(where: { $0.name == name }) { document.style.apply(theme) }
         document.style.spanSet = env["SB_SPAN"] == "1"
+        // More knobs: SB_PRESET=<OutputPreset raw value>, SB_FINISH, SB_LANDSCAPE=1, SB_FRAME=<FrameStyle raw value>.
+        if let raw = env["SB_PRESET"], let preset = OutputPreset(rawValue: raw) { document.style.preset = preset }
+        if let finish = env["SB_FINISH"] { document.style.finish = finish }
+        document.style.landscape = env["SB_LANDSCAPE"] == "1"
+        if let raw = env["SB_FRAME"], let frame = FrameStyle(rawValue: raw) { document.style.frameStyle = frame }
         for (index, caption) in Self.captions.enumerated() {
             let url = samples.appendingPathComponent(String(format: "%02d.png", index + 1))
             guard FileManager.default.fileExists(atPath: url.path) else { continue }

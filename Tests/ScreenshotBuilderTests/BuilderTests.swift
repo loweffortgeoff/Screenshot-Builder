@@ -25,7 +25,7 @@ struct BuilderTests {
         second.headline = "Second caption"
         document.shots = [second, first]
         document.style.layout = .below
-        document.style.frame = true
+        document.style.frameStyle = .rounded
         let loaded = try ShotDocument.decode(JSONEncoder().encode(document))
         #expect(loaded.shots == document.shots)
         #expect(loaded.style == document.style)
@@ -77,7 +77,7 @@ struct BuilderTests {
             for landscape in [true, false] {
                 for layout in CaptionLayout.allCases {
                     var style = SetStyle()
-                    style.preset = preset; style.landscape = landscape; style.layout = layout; style.frame = true
+                    style.preset = preset; style.landscape = landscape; style.layout = layout; style.frameStyle = .device
                     let c = ShotRenderer.compose(shot: shot, style: style, sourceSize: CGSize(width: 1320, height: 2868))
                     #expect(CGRect(origin: .zero, size: style.size).contains(c.imageRect))
                     if layout == .above { #expect(c.subtitleRect.maxY < c.imageRect.minY) }
@@ -145,6 +145,7 @@ struct BuilderTests {
         #expect(loaded.style.imageScale == 0.8)
         #expect(loaded.style.accent == loaded.style.foreground)
         #expect(!loaded.style.shadow)
+        #expect(loaded.style.frameStyle == .device)
         #expect(loaded.shots.first?.headline == "Hi")
     }
 
@@ -179,5 +180,55 @@ struct BuilderTests {
         let leftEdge = try #require(second.colorAt(x: 0, y: 2)?.usingColorSpace(.sRGB))
         #expect(abs(rightEdge.redComponent - leftEdge.redComponent) < 0.03)
         #expect(leftEdge.redComponent > 0.25 && leftEdge.redComponent < 0.45)
+    }
+
+    @Test func deviceScreenMatchesMeasuredSpec() throws {
+        let capture = CGSize(width: 1320, height: 2868)
+        var style = SetStyle()
+        style.frameStyle = .device
+        let composition = ShotRenderer.compose(shot: try fixture(), style: style, sourceSize: capture)
+        let device = try #require(composition.device)
+        let screen = device.screenRect
+        // A native capture fills the measured opening exactly.
+        #expect(abs(screen.width / screen.height - 1320.0 / 2868.0) < 0.0005)
+        #expect(abs(composition.imageRect.width - screen.width) < 0.5)
+        #expect(abs(composition.imageRect.height - screen.height) < 0.5)
+        #expect(CGRect(origin: .zero, size: style.size).contains(device.rect))
+        // Landscape rotates the opening.
+        style.landscape = true
+        let landscape = try #require(ShotRenderer.compose(shot: try fixture(), style: style, sourceSize: capture).device)
+        #expect(landscape.screenRect.width > landscape.screenRect.height)
+    }
+
+    @Test func deviceClipsCaptureToDisplayCorners() throws {
+        var style = SetStyle()
+        style.layout = .imageOnly
+        style.shadow = false
+        style.background = .solid(RGBColor(1, 1, 1))
+        // A solid red capture at native size.
+        let context = try #require(CGContext(data: nil, width: 1320, height: 2868, bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
+        context.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: 1320, height: 2868))
+        let red = try #require(context.makeImage())
+        let png = try #require(NSBitmapImageRep(cgImage: red).representation(using: .png, properties: [:]))
+        let shot = Shot(name: "Red", imageData: png)
+        let bitmap = try ShotRenderer.render(shot: shot, style: style)
+        let screen = try #require(ShotRenderer.compose(shot: shot, style: style, sourceSize: CGSize(width: 1320, height: 2868)).device?.screenRect)
+        // 45 reference pixels in along the diagonal: past the metal band, outside the rounded display.
+        let inset = Int(45 * screen.width / 1320)
+        let corner = try #require(bitmap.colorAt(x: Int(screen.minX) + inset, y: Int(screen.minY) + inset)?.usingColorSpace(.sRGB))
+        let middle = try #require(bitmap.colorAt(x: Int(screen.midX), y: Int(screen.midY))?.usingColorSpace(.sRGB))
+        #expect(corner.redComponent < 0.3 && corner.greenComponent < 0.3) // Black bezel, not capture or background.
+        #expect(middle.redComponent > 0.9 && middle.blueComponent < 0.1)
+    }
+
+    @Test func everyPresetHasAFrameAndFinishes() throws {
+        for preset in OutputPreset.allCases {
+            let spec = DeviceSpec.for(preset)
+            #expect(spec.screen.width > 0 && spec.outer.width >= spec.body.width)
+            #expect(!DeviceFinish.all(for: spec.family).isEmpty)
+            #expect(DeviceFinish.named("Nonexistent", for: spec.family) == DeviceFinish.all(for: spec.family)[0])
+        }
     }
 }
