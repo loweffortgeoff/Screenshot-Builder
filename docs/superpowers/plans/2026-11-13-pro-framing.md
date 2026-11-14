@@ -113,3 +113,14 @@ Rubric: seven criteria (output polish, color, typography, frame realism, editor 
 | Baseline | `main` 12b6a2e | 4.0 | 3.8 | 3.8 | 3.8 |
 | 1 | d6f618d (M1–M4) | 6.6 | 7.4 | 6.6 | 6.6 |
 | 2 | f4277db (round 1 fixes) | 6.7 | 6.9 | 6.8 | 6.8 |
+| 3 (final) | d04479b (round 2 and review fixes) | 7.0 | 7.3 | 7.3 | 7.3 |
+
+Result: below the 8.0 gate after the 3-round cap. Escalated to Geoff on 2026-11-13 as a scope decision.
+
+Round 3 themes, all three judges:
+- Per-shot variety (tilt, offset, two devices, callouts) caps competitiveness at 6–7. This is outside the fixed-layout scope.
+- The bleed fade tints the bottom of the screenshot. Judges prefer a clean crop.
+- iPad set: the review input used iPhone captures, so they letterboxed inside the iPad. An aspect-mismatch warning, or a phone frame on an iPad canvas, would address it.
+- Light themes: white subtitles on Sunset and Peach need a contrast check.
+- Empty state: the import card covers the placeholder device.
+
