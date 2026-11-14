@@ -52,14 +52,24 @@ struct SampleRenderTests {
         if let raw = env["SB_LAYOUT"], let value = CaptionLayout(rawValue: raw) { document.style.layout = value }
         if let raw = env["SB_ALIGN"], let value = CaptionAlignment(rawValue: raw) { document.style.alignment = value }
         if let raw = env["SB_FONT"], let value = CaptionFont(rawValue: raw) { document.style.font = value }
+        // SB_ARRANGE: "vary" applies the curated sequence, or an Arrangement raw value applies to every shot.
+        if let raw = env["SB_ARRANGE"] {
+            for index in document.shots.indices {
+                document.shots[index].arrangement = raw == "vary"
+                    ? Arrangement.variedSequence[index % Arrangement.variedSequence.count]
+                    : Arrangement(rawValue: raw) ?? .standard
+            }
+        }
         let band = ShotRenderer.captionBand(shots: document.shots, style: document.style)
         var tiles: [NSBitmapImageRep] = []
         for (index, shot) in document.shots.enumerated() {
             let position = ShotRenderer.SetPosition(index: index, count: document.shots.count)
-            let bitmap = try ShotRenderer.render(shot: shot, style: document.style, position: position, captionBand: band)
+            let bitmap = try ShotRenderer.render(shot: shot, style: document.style, position: position, captionBand: band,
+                                                 companion: ShotRenderer.companion(for: shot, in: document.shots))
             let png = try #require(bitmap.representation(using: .png, properties: [:]))
             try png.write(to: out.appendingPathComponent(String(format: "export-%02d.png", index + 1)))
-            tiles.append(try ShotRenderer.render(shot: shot, style: document.style, maxDimension: 900, position: position, captionBand: band))
+            tiles.append(try ShotRenderer.render(shot: shot, style: document.style, maxDimension: 900, position: position, captionBand: band,
+                                                  companion: ShotRenderer.companion(for: shot, in: document.shots)))
         }
         try contactSheet(tiles).write(to: out.appendingPathComponent("set.png"))
         try JSONEncoder().encode(document).write(to: out.appendingPathComponent("Sample.shotset"))

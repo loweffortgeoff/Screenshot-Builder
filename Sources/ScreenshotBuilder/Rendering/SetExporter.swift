@@ -15,7 +15,8 @@ enum SetExporter {
         do {
             for (index, shot) in shots.enumerated() {
                 let bitmap = try ShotRenderer.render(shot: shot, style: style,
-                                                     position: .init(index: index, count: shots.count), captionBand: band)
+                                                     position: .init(index: index, count: shots.count), captionBand: band,
+                                                     companion: ShotRenderer.companion(for: shot, in: shots))
                 guard let png = bitmap.representation(using: .png, properties: [:]) else {
                     throw BuilderError.message("Could not encode shot \(index + 1).")
                 }

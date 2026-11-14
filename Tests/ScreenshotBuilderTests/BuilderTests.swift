@@ -460,4 +460,86 @@ struct BuilderTests {
         let native = ShotRenderer.compose(shot: shot, style: style, sourceSize: CGSize(width: 1320, height: 2868))
         #expect(!native.advisories.contains { $0.contains("different device") })
     }
+
+    @Test func everyArrangementStaysVisibleAndClearOfCaptions() throws {
+        var shot = try fixture()
+        for preset in OutputPreset.allCases {
+            for landscape in [false, true] {
+                for layout in CaptionLayout.allCases {
+                    for arrangement in Arrangement.allCases {
+                        var style = SetStyle()
+                        style.preset = preset; style.landscape = landscape; style.layout = layout
+                        shot.arrangement = arrangement
+                        let c = ShotRenderer.compose(shot: shot, style: style, sourceSize: CGSize(width: 1320, height: 2868))
+                        let canvas = CGRect(origin: .zero, size: style.size)
+                        let front = try #require(c.layers.last)
+                        let visible = front.bounds.intersection(canvas)
+                        // At least half of the front device stays on the canvas.
+                        #expect(visible.width * visible.height >= front.bounds.width * front.bounds.height * 0.5,
+                                "\(preset) \(landscape) \(layout) \(arrangement)")
+                        if layout.hasCaption {
+                            for layer in c.layers {
+                                if layout.captionOnTop { #expect(layer.bounds.minY >= c.subtitleRect.maxY - 0.5) }
+                                else { #expect(layer.bounds.maxY <= c.headlineRect.minY + 0.5) }
+                            }
+                        }
+                        if let callout = c.callout { #expect(canvas.contains(callout.rect)) }
+                        #expect((arrangement == .duo) == (c.layers.count == 2))
+                        #expect((arrangement == .callout) == (c.callout != nil))
+                    }
+                }
+            }
+        }
+    }
+
+    @Test func tiltLeansTheNamedWayAndDuoUsesTheNextShot() throws {
+        var shot = try fixture()
+        shot.arrangement = .tiltRight
+        let source = CGSize(width: 1320, height: 2868)
+        let right = try #require(ShotRenderer.compose(shot: shot, style: SetStyle(), sourceSize: source).layers.last)
+        #expect(right.rotation > 0) // Clockwise on the flipped canvas: the top leans right.
+        shot.arrangement = .tiltLeft
+        #expect(try #require(ShotRenderer.compose(shot: shot, style: SetStyle(), sourceSize: source).layers.last).rotation < 0)
+        var a = try fixture(); a.arrangement = .duo
+        let b = try fixture(), c = try fixture()
+        #expect(ShotRenderer.companion(for: a, in: [a, b, c])?.id == b.id)
+        var last = c; last.arrangement = .duo
+        #expect(ShotRenderer.companion(for: last, in: [a, b, last])?.id == a.id)
+        a.companion = c.id
+        #expect(ShotRenderer.companion(for: a, in: [a, b, c])?.id == c.id)
+        a.companion = a.id // Never itself.
+        #expect(ShotRenderer.companion(for: a, in: [a, b, c])?.id == b.id)
+        #expect(ShotRenderer.companion(for: a, in: [a]) == nil)
+    }
+
+    @Test func autoCalloutPicksTheBusyBand() throws {
+        // Flat gray capture with a striped bottom third.
+        let context = try #require(CGContext(data: nil, width: 300, height: 600, bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
+        context.setFillColor(CGColor(gray: 0.5, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: 300, height: 600))
+        for i in 0..<30 where i % 2 == 0 {
+            context.setFillColor(CGColor(gray: 0, alpha: 1))
+            context.fill(CGRect(x: i * 10, y: 60, width: 10, height: 110)) // CG origin is bottom-left: this is the bottom band.
+        }
+        let image = try #require(context.makeImage())
+        let png = try #require(NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]))
+        var shot = Shot(name: "Busy", imageData: png)
+        #expect(shot.calloutCenter == CalloutRegion.bottom.center)
+        shot.calloutRegion = .top
+        #expect(shot.calloutCenter == CalloutRegion.top.center)
+    }
+
+    @Test func versionTwoShotsOpenAsStandard() throws {
+        var document = ShotDocument()
+        document.shots = [try fixture()]
+        var json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(document)) as! [String: Any]
+        json["version"] = 2
+        var shots = json["shots"] as! [[String: Any]]
+        shots[0].removeValue(forKey: "arrangement"); shots[0].removeValue(forKey: "calloutRegion")
+        json["shots"] = shots
+        let loaded = try ShotDocument.decode(JSONSerialization.data(withJSONObject: json))
+        #expect(loaded.version == 3)
+        #expect(loaded.shots[0].arrangement == .standard && loaded.shots[0].calloutRegion == .auto)
+    }
 }

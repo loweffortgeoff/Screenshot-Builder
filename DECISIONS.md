@@ -13,3 +13,6 @@
 - 2026-11-13: Add bleed templates that run the device off the top or bottom edge, still within the fixed-layout model (no freeform editing). Sidebar and filmstrip show composed thumbnails rendered by the shared renderer.
 - 2026-11-13: The filmstrip is the main navigator and the list sidebar starts hidden. The inspector splits into Caption, Style, and Device tabs.
 - 2026-11-13: Accept the UI score from an ad-hoc council (Opus, Sonnet, Fable judges, fixed rubric, median) because no /council skill exists. Rounds capped at 3.
+- 2026-11-13: Chapter 2. Each shot can override the set layout with an arrangement: Tilt, Hero, Duo (back screen from another shot, default the next), or Zoom callout. Arrangements keep the shared caption band and shift away from the caption. Project format version 3, so older builds refuse files that carry arrangements.
+- 2026-11-13: Zoom callout regions default to Auto, which picks the third of the capture with the most luminance variation, skipping the status bar and the bottom bar.
+- 2026-11-13: Drop the bleed fade (council round 3: it tinted the screenshot). Theme colors must pass a 3:1 large-text contrast test against every background color.

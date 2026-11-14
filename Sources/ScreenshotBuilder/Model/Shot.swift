@@ -1,5 +1,6 @@
 import Foundation
 import ImageIO
+import CoreGraphics
 
 struct Shot: Codable, Equatable, Identifiable {
     var id = UUID()
@@ -9,10 +10,17 @@ struct Shot: Codable, Equatable, Identifiable {
     var subtitle = ""
     /// Headline words drawn in the accent color, matched without case. Typed *asterisks* also work.
     var accents: [String] = []
+    /// How this shot places its device. `standard` follows the set layout.
+    var arrangement: Arrangement = .standard
+    /// The Duo back screen. `nil` uses the next shot in the set.
+    var companion: UUID?
+    /// The part of the capture a Zoom callout magnifies.
+    var calloutRegion: CalloutRegion = .auto
 
-    init(id: UUID = UUID(), name: String, imageData: Data, headline: String = "", subtitle: String = "", accents: [String] = []) {
+    init(id: UUID = UUID(), name: String, imageData: Data, headline: String = "", subtitle: String = "", accents: [String] = [],
+         arrangement: Arrangement = .standard) {
         self.id = id; self.name = name; self.imageData = imageData
-        self.headline = headline; self.subtitle = subtitle; self.accents = accents
+        self.headline = headline; self.subtitle = subtitle; self.accents = accents; self.arrangement = arrangement
     }
 
     init(from decoder: Decoder) throws {
@@ -23,6 +31,9 @@ struct Shot: Codable, Equatable, Identifiable {
         headline = try c.decodeIfPresent(String.self, forKey: .headline) ?? ""
         subtitle = try c.decodeIfPresent(String.self, forKey: .subtitle) ?? ""
         accents = try c.decodeIfPresent([String].self, forKey: .accents) ?? []
+        arrangement = try c.decodeIfPresent(Arrangement.self, forKey: .arrangement) ?? .standard
+        companion = try c.decodeIfPresent(UUID.self, forKey: .companion)
+        calloutRegion = try c.decodeIfPresent(CalloutRegion.self, forKey: .calloutRegion) ?? .auto
     }
 
     /// Decoded images, keyed by content, so typing does not re-decode every capture.
@@ -56,7 +67,65 @@ struct Shot: Codable, Equatable, Identifiable {
     }
 }
 
+/// Per-shot device arrangements. All of them keep the set's caption band, so captions stay aligned.
+enum Arrangement: String, Codable, CaseIterable, Identifiable {
+    case standard = "Standard", tiltLeft = "Tilt left", tiltRight = "Tilt right",
+         heroLeft = "Hero left", heroRight = "Hero right", duo = "Duo", callout = "Callout"
+    var id: Self { self }
+    var title: String {
+        switch self {
+        case .standard: "Standard"
+        case .tiltLeft: "Tilt ←"
+        case .tiltRight: "Tilt →"
+        case .heroLeft: "Hero ←"
+        case .heroRight: "Hero →"
+        case .duo: "Duo"
+        case .callout: "Zoom"
+        }
+    }
+    /// The curated sequence "Vary layouts" assigns, in order.
+    static let variedSequence: [Arrangement] = [.tiltRight, .duo, .callout, .heroLeft, .tiltLeft, .standard, .heroRight, .duo, .callout, .tiltRight]
+}
+
+enum CalloutRegion: String, Codable, CaseIterable, Identifiable {
+    case auto = "Auto", top = "Top", middle = "Middle", bottom = "Bottom"
+    var id: Self { self }
+    /// Vertical center of the magnified band, as a fraction of the capture height. Auto resolves per capture.
+    var center: CGFloat { switch self { case .auto, .middle: 0.5; case .top: 0.22; case .bottom: 0.76 } }
+}
+
 extension Shot {
+    nonisolated(unsafe) private static let detailCenters = NSCache<NSData, NSNumber>()
+
+    /// The callout band center for this shot, resolving Auto to the busiest third of the capture.
+    var calloutCenter: CGFloat {
+        guard calloutRegion == .auto else { return calloutRegion.center }
+        let key = imageData as NSData
+        if let hit = Shot.detailCenters.object(forKey: key) { return CGFloat(hit.doubleValue) }
+        let center = detailBandCenter()
+        Shot.detailCenters.setObject(NSNumber(value: Double(center)), forKey: key)
+        return center
+    }
+
+    /// Picks the band with the most luminance variation, skipping the status bar and the bottom bar.
+    private func detailBandCenter() -> CGFloat {
+        guard let image = cgImage else { return 0.5 }
+        let w = 48, h = 96
+        var pixels = [UInt8](repeating: 0, count: w * h)
+        guard let context = CGContext(data: &pixels, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w,
+                                      space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue) else { return 0.5 }
+        context.interpolationQuality = .medium
+        context.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+        // Buffer row 0 is the top of the image.
+        func spread(_ center: CGFloat) -> Double {
+            let rows = Int((center - 0.09) * CGFloat(h))..<Int((center + 0.09) * CGFloat(h))
+            let values = rows.flatMap { y in (0..<w).map { Double(pixels[y * w + $0]) } }
+            let mean = values.reduce(0, +) / Double(max(values.count, 1))
+            return values.reduce(0) { $0 + abs($1 - mean) } / Double(max(values.count, 1))
+        }
+        return [CalloutRegion.top, .middle, .bottom].map(\.center).max { spread($0) < spread($1) } ?? 0.5
+    }
+
     /// A blank screen at the device's native size, for the empty-set preview.
     static func placeholder(for style: SetStyle) -> Shot {
         var screen = DeviceSpec.for(style.preset).screen

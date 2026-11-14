@@ -7,7 +7,7 @@ extension UTType {
 
 struct ShotDocument: FileDocument, Codable {
     static var readableContentTypes: [UTType] { [.shotSet] }
-    static let currentVersion = 2
+    static let currentVersion = 3
     var version = currentVersion
     var style = SetStyle()
     var shots: [Shot] = []

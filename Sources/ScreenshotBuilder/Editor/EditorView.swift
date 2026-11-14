@@ -57,6 +57,7 @@ struct EditorView: View {
                     PreviewPane(shot: selectedIndex.map { document.shots[$0] }, style: document.style,
                                 position: .init(index: selectedIndex ?? 0, count: document.shots.count),
                                 captionBand: ShotRenderer.captionBand(shots: document.shots, style: document.style),
+                                companion: selectedIndex.flatMap { ShotRenderer.companion(for: document.shots[$0], in: document.shots) },
                                 importImages: { replacing = nil; importing = true })
                     if !document.shots.isEmpty {
                         Divider()
@@ -177,7 +178,8 @@ struct EditorView: View {
             await Task.yield()
             if Task.isCancelled { return }
             guard let bitmap = try? ShotRenderer.render(shot: shot, style: style, maxDimension: 420,
-                                                        position: .init(index: index, count: shots.count), captionBand: band) else { continue }
+                                                        position: .init(index: index, count: shots.count), captionBand: band,
+                                                        companion: ShotRenderer.companion(for: shot, in: shots)) else { continue }
             let image = NSImage(size: bitmap.size)
             image.addRepresentation(bitmap)
             rendered[shot.id] = image

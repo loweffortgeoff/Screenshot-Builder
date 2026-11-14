@@ -19,12 +19,43 @@ enum ShotRenderer {
         var warnings: [String]
         /// Advice that does not block export (soft source, capture shaped for another device).
         var advisories: [String] = []
-        /// Present when the style draws a device frame.
+        /// Back to front. The last layer is this shot's own capture.
+        var layers: [Layer] = []
+        var callout: Callout?
+
+        /// The front layer, for callers that place a single device.
+        var device: DeviceFrame? { layers.last?.device }
+        var cornerRadius: CGFloat { layers.last?.cornerRadius ?? 0 }
+        var windowed: Bool { layers.last?.windowed ?? false }
+    }
+
+    /// One placed device (or bare capture), drawn rotated around its center.
+    struct Layer {
         var device: DeviceFrame?
-        /// Display corner radius for the capture, in canvas points.
+        var imageRect: CGRect
         var cornerRadius: CGFloat = 0
-        /// A laptop showing a window capture: the window floats on a desktop wallpaper.
         var windowed = false
+        /// Radians, clockwise on the canvas.
+        var rotation: CGFloat = 0
+        /// The object this layer occupies before rotation (device outer rect, or the capture).
+        var frame: CGRect
+        /// Draws the Duo companion capture instead of the shot's own.
+        var usesCompanion = false
+
+        /// Axis-aligned bounds after rotation.
+        var bounds: CGRect {
+            let t = CGAffineTransform(translationX: frame.midX, y: frame.midY).rotated(by: rotation)
+                .translatedBy(x: -frame.midX, y: -frame.midY)
+            return frame.applying(t)
+        }
+    }
+
+    /// A magnified card of one band of the capture.
+    struct Callout {
+        var rect: CGRect
+        /// The magnified part of the capture, in unit coordinates (top-left origin).
+        var source: CGRect
+        var cornerRadius: CGFloat
     }
 
     /// Largest rect with `aspect`'s proportions that fits in `box`, centered.
@@ -109,7 +140,8 @@ enum ShotRenderer {
         return (head, sub, headWidth, subWidth, head + gap + sub)
     }
 
-    static func compose(shot: Shot, style: SetStyle, sourceSize: CGSize, captionBand: CaptionBand? = nil) -> Composition {
+    static func compose(shot: Shot, style: SetStyle, sourceSize: CGSize, captionBand: CaptionBand? = nil,
+                        companionSize: CGSize? = nil) -> Composition {
         let size = style.size
         let metrics = CaptionMetrics(style: style)
         let margin = metrics.margin
@@ -142,39 +174,99 @@ enum ShotRenderer {
             return CGRect(x: available.midX - width / 2, y: y, width: width, height: height)
         }
         let spec = DeviceSpec.for(style.preset)
-        var device: DeviceFrame?
-        let rect: CGRect
-        var cornerRadius: CGFloat = 0
-        var windowed = false
-        switch style.frameStyle {
-        case .device:
-            let rotated = style.landscape && style.preset != .mac
-            let frame = DeviceFrame(spec: spec, landscape: rotated,
-                                    rect: place(DeviceFrame.outerSize(spec, landscape: rotated)))
-            device = frame
-            // Captures keep their proportions; a mismatched capture sits on black glass.
-            let content = frame.contentRect
-            func mismatch(_ box: CGRect) -> CGFloat {
-                abs(sourceSize.width / sourceSize.height - box.width / box.height) / (box.width / box.height)
+        let rotatedDevice = style.landscape && style.preset != .mac
+        let companionSize = companionSize ?? sourceSize
+        /// Builds a layer that fills `box` with a device (or the bare capture) and fits `capture` inside.
+        func layer(in box: CGRect, capture: CGSize, rotation: CGFloat = 0, companion: Bool = false) -> Layer {
+            switch style.frameStyle {
+            case .device:
+                let frame = DeviceFrame(spec: spec, landscape: rotatedDevice, rect: box)
+                let content = frame.contentRect
+                func mismatch(_ r: CGRect) -> CGFloat {
+                    abs(capture.width / capture.height - r.width / r.height) / (r.width / r.height)
+                }
+                if spec.family == .laptop && mismatch(frame.screenRect) <= 0.01 {
+                    // A native full-display capture (menu bar included): fill the opening; the notch covers the menu bar.
+                    return Layer(device: frame, imageRect: Self.fit(capture, in: frame.screenRect), rotation: rotation,
+                                 frame: box, usesCompanion: companion)
+                } else if spec.family == .laptop && mismatch(content) > 0.03 {
+                    // A window capture, not a full-screen one: float it on a wallpaper with room around it.
+                    let r = Self.fit(capture, in: content.insetBy(dx: content.width * 0.07, dy: content.height * 0.08))
+                    return Layer(device: frame, imageRect: r, cornerRadius: r.width * 0.008, windowed: true,
+                                 rotation: rotation, frame: box, usesCompanion: companion)
+                }
+                // Captures keep their proportions; a mismatched capture sits on black glass.
+                return Layer(device: frame, imageRect: Self.fit(capture, in: content), rotation: rotation,
+                             frame: box, usesCompanion: companion)
+            case .rounded, .none:
+                let r = Self.fit(capture, in: box)
+                var radius: CGFloat = 0
+                if style.frameStyle == .rounded {
+                    let ratio = spec.screenRadius > 0 ? spec.screenRadius / min(spec.screen.width, spec.screen.height) : 0.04
+                    radius = min(r.width, r.height) * ratio
+                }
+                return Layer(device: nil, imageRect: r, cornerRadius: radius, rotation: rotation, frame: r, usesCompanion: companion)
             }
-            if spec.family == .laptop && mismatch(frame.screenRect) <= 0.01 {
-                // A native full-display capture (menu bar included): fill the opening; the notch covers the menu bar.
-                rect = Self.fit(sourceSize, in: frame.screenRect)
-            } else if spec.family == .laptop && mismatch(content) > 0.03 {
-                // A window capture, not a full-screen one: float it on a wallpaper with room around it.
-                windowed = true
-                rect = Self.fit(sourceSize, in: content.insetBy(dx: content.width * 0.07, dy: content.height * 0.08))
-                cornerRadius = rect.width * 0.008
-            } else {
-                rect = Self.fit(sourceSize, in: content)
-            }
-        case .rounded:
-            rect = place(sourceSize)
-            let ratio = spec.screenRadius > 0 ? spec.screenRadius / min(spec.screen.width, spec.screen.height) : 0.04
-            cornerRadius = min(rect.width, rect.height) * ratio
-        case .none:
-            rect = place(sourceSize)
         }
+        let objectAspect = style.frameStyle == .device ? DeviceFrame.outerSize(spec, landscape: rotatedDevice) : sourceSize
+        let base = place(objectAspect)
+        func scaled(_ r: CGRect, _ k: CGFloat, dx: CGFloat = 0, dy: CGFloat = 0) -> CGRect {
+            CGRect(x: r.midX - r.width * k / 2 + dx, y: r.midY - r.height * k / 2 + dy, width: r.width * k, height: r.height * k)
+        }
+        let degrees = CGFloat.pi / 180
+        var layers: [Layer] = []
+        var callout: Callout?
+        switch shot.arrangement {
+        case .standard:
+            layers = [layer(in: base, capture: sourceSize)]
+        case .tiltLeft, .tiltRight:
+            // The canvas y-axis points down, so a positive angle turns clockwise: the device's top leans right.
+            let sign: CGFloat = shot.arrangement == .tiltRight ? 1 : -1
+            layers = [layer(in: scaled(base, 0.97, dx: sign * base.width * 0.05), capture: sourceSize, rotation: sign * 8 * degrees)]
+        case .heroLeft, .heroRight:
+            // Start from the plain fit, not a bleed placement, so the device does not run off two edges at once.
+            var r = scaled(Self.fit(objectAspect, in: available), 1.2)
+            if style.layout.hasCaption {
+                if style.layout.captionOnTop { r.origin.y = available.minY } else { r.origin.y = available.maxY - r.height }
+            }
+            // About a quarter of the device runs off the side edge.
+            r.origin.x = shot.arrangement == .heroRight ? size.width - r.width * 0.76 : -r.width * 0.24
+            // Lean the device's top toward the canvas center.
+            layers = [layer(in: r, capture: sourceSize, rotation: (shot.arrangement == .heroRight ? -4 : 4) * degrees)]
+        case .duo:
+            let back = scaled(base, 0.8, dx: -base.width * 0.21, dy: -base.height * 0.03)
+            let front = scaled(base, 0.86, dx: base.width * 0.19, dy: base.height * 0.05)
+            layers = [layer(in: back, capture: companionSize, rotation: 7 * degrees, companion: true),
+                      layer(in: front, capture: sourceSize, rotation: -3 * degrees)]
+        case .callout:
+            let device = layer(in: scaled(base, 0.94, dx: -base.width * 0.17), capture: sourceSize)
+            layers = [device]
+            // Magnify a band of the capture about 1.6x, on a card that overlaps the device's right edge.
+            // Whole rows read better than a cropped middle, so the band spans nearly the full capture width.
+            let crop = CGRect(x: 0.03, y: min(max(shot.calloutCenter - 0.09, 0), 0.82), width: 0.94, height: 0.18)
+            let cardWidth = min(size.width * 0.74, device.imageRect.width * crop.width * 1.45)
+            let cardHeight = cardWidth * (crop.height * sourceSize.height) / (crop.width * sourceSize.width)
+            let anchorY = device.imageRect.minY + device.imageRect.height * shot.calloutCenter
+            let cardY = min(max(anchorY - cardHeight / 2, available.minY), available.maxY - cardHeight)
+            let cardX = min(device.imageRect.maxX - cardWidth * 0.35, size.width - margin * 0.6 - cardWidth)
+            callout = Callout(rect: CGRect(x: cardX, y: cardY, width: cardWidth, height: cardHeight), source: crop,
+                              cornerRadius: cardWidth * 0.045)
+        }
+        // Keep rotated or enlarged devices clear of the caption: shift the group away from the caption side.
+        if hasCaption, let bounds = layers.map(\.bounds).reduce(nil, { (acc: CGRect?, r) in acc.map { $0.union(r) } ?? r }) {
+            let shift = style.layout.captionOnTop ? max(0, available.minY - bounds.minY) : -max(0, bounds.maxY - available.maxY)
+            if shift != 0 {
+                layers = layers.map { l in
+                    var moved = layer(in: l.frame.offsetBy(dx: 0, dy: shift), capture: l.usesCompanion ? companionSize : sourceSize,
+                                      rotation: l.rotation, companion: l.usesCompanion)
+                    if l.device == nil { moved.frame = l.frame.offsetBy(dx: 0, dy: shift) }
+                    return moved
+                }
+                callout?.rect.origin.y += shift
+            }
+        }
+        let rect = layers.last?.imageRect ?? base
+        let device = layers.last?.device
         let fit = rect.width / sourceSize.width
         // The band is shared across the set and captions start at its top, so headlines share a line.
         let captionTop = style.layout.captionOnTop ? top : size.height - margin * 1.6 - captionHeight
@@ -205,7 +297,15 @@ enum ShotRenderer {
                            headlineRect: textRect(width: caption.headWidth, y: textY, height: caption.head),
                            subtitleRect: textRect(width: caption.subWidth, y: textY + caption.head + gap, height: caption.sub),
                            headline: headline, subtitle: subtitle, warnings: warnings,
-                           advisories: advisories, device: device, cornerRadius: cornerRadius, windowed: windowed)
+                           advisories: advisories, layers: layers, callout: callout)
+    }
+
+    /// The Duo back screen for `shot`: its chosen companion, else the next shot (wrapping), else nil.
+    static func companion(for shot: Shot, in shots: [Shot]) -> Shot? {
+        guard shot.arrangement == .duo, shots.count > 1 else { return nil }
+        if let id = shot.companion, id != shot.id, let chosen = shots.first(where: { $0.id == id }) { return chosen }
+        guard let index = shots.firstIndex(where: { $0.id == shot.id }) else { return nil }
+        return shots[(index + 1) % shots.count]
     }
 
     /// Pass the set's band so validation checks exactly what render draws.
@@ -223,7 +323,8 @@ enum ShotRenderer {
     }
 
     static func render(shot: Shot, style: SetStyle, maxDimension: CGFloat? = nil,
-                       position: SetPosition = .single, captionBand: CaptionBand? = nil) throws -> NSBitmapImageRep {
+                       position: SetPosition = .single, captionBand: CaptionBand? = nil,
+                       companion: Shot? = nil) throws -> NSBitmapImageRep {
         guard let source = shot.cgImage else { throw BuilderError.message("Cannot read \(shot.name).") }
         let size = style.size
         let scale = maxDimension.map { min(1, $0 / max(size.width, size.height)) } ?? 1
@@ -243,69 +344,84 @@ enum ShotRenderer {
         cg.scaleBy(x: CGFloat(width) / size.width, y: -CGFloat(height) / size.height)
         drawBackground(style.background, in: cg, size: size, position: style.spanSet ? position : .single)
         if style.grain && style.background.kind != .solid { drawGrain(in: cg, size: size) }
+        let companionSize = companion?.cgImage.map { CGSize(width: $0.width, height: $0.height) }
         let composition = compose(shot: shot, style: style, sourceSize: CGSize(width: source.width, height: source.height),
-                                  captionBand: captionBand)
-        let image = NSImage(cgImage: source, size: CGSize(width: source.width, height: source.height))
-        let drawCapture = {
-            image.draw(in: composition.imageRect, from: .zero, operation: .sourceOver, fraction: 1,
-                       respectFlipped: true, hints: [.interpolation: NSImageInterpolation.high])
-        }
-        let silhouette = composition.device?.silhouette
-            ?? CGPath(roundedRect: composition.imageRect, cornerWidth: composition.cornerRadius,
-                      cornerHeight: composition.cornerRadius, transform: nil)
+                                  captionBand: captionBand, companionSize: companionSize)
         let unit = min(size.width, size.height)
         let pixelScale = CGFloat(width) / size.width
-        // Captures with transparency (for example a macOS window shot with its own shadow margins) must not sit
-        // on an opaque fill; they cast their shadow from their own alpha instead.
-        let hasAlpha = ![CGImageAlphaInfo.none, .noneSkipFirst, .noneSkipLast].contains(source.alphaInfo)
         let shadows: [(CGFloat, CGFloat, CGFloat)] = [(0.03, 0.09, 0.42), (0.008, 0.018, 0.32)]
-        func drawCaptureWithShadow(clip path: CGPath, offset: CGFloat, blur: CGFloat, alpha: CGFloat) {
-            cg.saveGState()
-            cg.setShadow(offset: CGSize(width: 0, height: -offset * pixelScale), blur: blur * pixelScale,
-                         color: CGColor(gray: 0, alpha: alpha))
-            cg.beginTransparencyLayer(auxiliaryInfo: nil)
-            cg.addPath(path); cg.clip()
-            drawCapture()
-            cg.endTransparencyLayer()
-            cg.restoreGState()
-        }
-        let captureCastsShadow = style.shadow && hasAlpha && composition.device == nil
-        if style.shadow && !captureCastsShadow {
-            // Two shadows: a wide ambient one and a tight contact one. Offsets are in device pixels.
-            for (offset, blur, alpha) in shadows {
+        let companionImage = companion?.cgImage ?? source
+        for layer in composition.layers {
+            let capture = layer.usesCompanion ? companionImage : source
+            let image = NSImage(cgImage: capture, size: CGSize(width: capture.width, height: capture.height))
+            let drawCapture = {
+                image.draw(in: layer.imageRect, from: .zero, operation: .sourceOver, fraction: 1,
+                           respectFlipped: true, hints: [.interpolation: NSImageInterpolation.high])
+            }
+            let silhouette = layer.device?.silhouette
+                ?? CGPath(roundedRect: layer.imageRect, cornerWidth: layer.cornerRadius, cornerHeight: layer.cornerRadius, transform: nil)
+            // Captures with transparency (for example a macOS window shot with its own shadow margins) must not sit
+            // on an opaque fill; they cast their shadow from their own alpha instead.
+            let hasAlpha = ![CGImageAlphaInfo.none, .noneSkipFirst, .noneSkipLast].contains(capture.alphaInfo)
+            func drawCaptureWithShadow(clip path: CGPath, offset: CGFloat, blur: CGFloat, alpha: CGFloat) {
                 cg.saveGState()
-                cg.setShadow(offset: CGSize(width: 0, height: -unit * offset * pixelScale), blur: unit * blur * pixelScale,
+                cg.setShadow(offset: CGSize(width: 0, height: -offset * pixelScale), blur: blur * pixelScale,
                              color: CGColor(gray: 0, alpha: alpha))
-                cg.setFillColor(CGColor(gray: 0.08, alpha: 1))
-                cg.addPath(silhouette)
-                cg.fillPath()
+                cg.beginTransparencyLayer(auxiliaryInfo: nil)
+                cg.addPath(path); cg.clip()
+                drawCapture()
+                cg.endTransparencyLayer()
                 cg.restoreGState()
             }
-        }
-        if let device = composition.device {
-            let screen = composition.windowed ? {
-                // Desktop wallpaper from the theme, then the window with its own shadow and corners.
-                let content = device.contentRect
-                cg.saveGState()
-                cg.translateBy(x: device.screenRect.minX, y: device.screenRect.minY)
-                drawBackground(style.background, in: cg, size: device.screenRect.size, position: .single)
-                cg.restoreGState()
-                cg.setFillColor(CGColor(gray: 0, alpha: 0.18))
-                cg.fill(device.screenRect)
-                let window = CGPath(roundedRect: composition.imageRect, cornerWidth: composition.cornerRadius,
-                                    cornerHeight: composition.cornerRadius, transform: nil)
-                // The window casts its shadow from its own pixels, so transparent margins stay transparent.
-                drawCaptureWithShadow(clip: window, offset: content.height * 0.012, blur: content.height * 0.05, alpha: 0.5)
-            } : drawCapture
-            device.draw(in: cg, finish: DeviceFinish.named(style.finish, for: device.spec.family), drawScreen: screen)
-        } else if captureCastsShadow {
-            drawCaptureWithShadow(clip: silhouette, offset: unit * shadows[0].0, blur: unit * shadows[0].1, alpha: shadows[0].2)
-        } else {
             cg.saveGState()
-            cg.addPath(silhouette)
-            cg.clip()
-            drawCapture()
+            if layer.rotation != 0 {
+                // Rotate frame, screen clip, and capture together. Shadow offsets stay in device space, so they fall downward.
+                cg.translateBy(x: layer.frame.midX, y: layer.frame.midY)
+                cg.rotate(by: layer.rotation)
+                cg.translateBy(x: -layer.frame.midX, y: -layer.frame.midY)
+            }
+            let captureCastsShadow = style.shadow && hasAlpha && layer.device == nil
+            if style.shadow && !captureCastsShadow {
+                // Two shadows: a wide ambient one and a tight contact one. Offsets are in device pixels.
+                for (offset, blur, alpha) in shadows {
+                    cg.saveGState()
+                    cg.setShadow(offset: CGSize(width: 0, height: -unit * offset * pixelScale), blur: unit * blur * pixelScale,
+                                 color: CGColor(gray: 0, alpha: alpha))
+                    cg.setFillColor(CGColor(gray: 0.08, alpha: 1))
+                    cg.addPath(silhouette)
+                    cg.fillPath()
+                    cg.restoreGState()
+                }
+            }
+            if let device = layer.device {
+                let screen = layer.windowed ? {
+                    // Desktop wallpaper from the theme, then the window with its own shadow and corners.
+                    let content = device.contentRect
+                    cg.saveGState()
+                    cg.translateBy(x: device.screenRect.minX, y: device.screenRect.minY)
+                    drawBackground(style.background, in: cg, size: device.screenRect.size, position: .single)
+                    cg.restoreGState()
+                    cg.setFillColor(CGColor(gray: 0, alpha: 0.18))
+                    cg.fill(device.screenRect)
+                    let window = CGPath(roundedRect: layer.imageRect, cornerWidth: layer.cornerRadius,
+                                        cornerHeight: layer.cornerRadius, transform: nil)
+                    // The window casts its shadow from its own pixels, so transparent margins stay transparent.
+                    drawCaptureWithShadow(clip: window, offset: content.height * 0.012, blur: content.height * 0.05, alpha: 0.5)
+                } : drawCapture
+                device.draw(in: cg, finish: DeviceFinish.named(style.finish, for: device.spec.family), drawScreen: screen)
+            } else if captureCastsShadow {
+                drawCaptureWithShadow(clip: silhouette, offset: unit * shadows[0].0, blur: unit * shadows[0].1, alpha: shadows[0].2)
+            } else {
+                cg.saveGState()
+                cg.addPath(silhouette)
+                cg.clip()
+                drawCapture()
+                cg.restoreGState()
+            }
             cg.restoreGState()
+        }
+        if let callout = composition.callout {
+            drawCallout(callout, source: source, in: cg, unit: unit, pixelScale: pixelScale)
         }
         // AppKit text drawing needs the flipped context flag as well as the transform.
         NSGraphicsContext.current = NSGraphicsContext(cgContext: cg, flipped: true)
@@ -316,6 +432,33 @@ enum ShotRenderer {
         context.flushGraphics()
         guard let output = cg.makeImage() else { throw BuilderError.message("Could not finish the export image.") }
         return NSBitmapImageRep(cgImage: output)
+    }
+
+    /// A white-bordered card showing one band of the capture, magnified, with a strong shadow.
+    private static func drawCallout(_ callout: Callout, source: CGImage, in cg: CGContext, unit: CGFloat, pixelScale: CGFloat) {
+        let border = max(4, callout.rect.width * 0.014)
+        let outer = callout.rect.insetBy(dx: -border, dy: -border)
+        let outerPath = CGPath(roundedRect: outer, cornerWidth: callout.cornerRadius + border,
+                               cornerHeight: callout.cornerRadius + border, transform: nil)
+        cg.saveGState()
+        cg.setShadow(offset: CGSize(width: 0, height: -unit * 0.02 * pixelScale), blur: unit * 0.07 * pixelScale,
+                     color: CGColor(gray: 0, alpha: 0.5))
+        cg.addPath(outerPath)
+        cg.setFillColor(CGColor(gray: 1, alpha: 0.96))
+        cg.fillPath()
+        cg.restoreGState()
+        let w = CGFloat(source.width), h = CGFloat(source.height)
+        // CGImage cropping uses the image's top-left pixel origin.
+        let crop = CGRect(x: callout.source.minX * w, y: callout.source.minY * h,
+                          width: callout.source.width * w, height: callout.source.height * h).integral
+        guard let band = source.cropping(to: crop) else { return }
+        cg.saveGState()
+        cg.addPath(CGPath(roundedRect: callout.rect, cornerWidth: callout.cornerRadius, cornerHeight: callout.cornerRadius, transform: nil))
+        cg.clip()
+        NSImage(cgImage: band, size: CGSize(width: band.width, height: band.height))
+            .draw(in: callout.rect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true,
+                  hints: [.interpolation: NSImageInterpolation.high])
+        cg.restoreGState()
     }
 
     /// Fills the canvas. With a spanning position, the gradient field covers the whole set.
