@@ -53,41 +53,8 @@ struct EditorView: View {
             .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 320)
         } detail: {
             HSplitView {
-                VStack(spacing: 0) {
-                    PreviewPane(shot: selectedIndex.map { document.shots[$0] }, style: document.style,
-                                position: .init(index: selectedIndex ?? 0, count: document.shots.count),
-                                captionBand: ShotRenderer.captionBand(shots: document.shots, style: document.style),
-                                companion: selectedIndex.flatMap { ShotRenderer.companion(for: document.shots[$0], in: document.shots) },
-                                importImages: { replacing = nil; importing = true })
-                    if !document.shots.isEmpty {
-                        Divider()
-                        Filmstrip(shots: document.shots, thumbnails: thumbnails, mismatched: mismatched, canvasAspect: canvasAspect,
-                                  selection: $selection, canImport: document.shots.count < 10,
-                                  importImages: { replacing = nil; importing = true },
-                                  move: move, replace: { replacing = $0; importing = true }, remove: { removal = $0 })
-                    }
-                }
-                .frame(minWidth: 360)
-                VStack(spacing: 0) {
-                    Picker("Inspector", selection: $tab) {
-                        ForEach(InspectorTab.allCases) { Text($0.rawValue).tag($0) }
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                    .padding(.horizontal, 16)
-                    .padding(.top, 12)
-                    .padding(.bottom, 4)
-                    Form {
-                        if tab == .caption, let index = selectedIndex {
-                            CaptionInspector(shot: $document.shots[index], position: index + 1, style: document.style,
-                                             captionBand: ShotRenderer.captionBand(shots: document.shots, style: document.style),
-                                             replaceImage: { replacing = selection; importing = true })
-                        }
-                        StyleInspector(style: $document.style, tab: tab)
-                    }
-                    .formStyle(.grouped)
-                }
-                .frame(minWidth: 300, idealWidth: 340, maxWidth: 400)
+                previewColumn
+                inspectorColumn
             }
         }
         .toolbar {
@@ -190,6 +157,63 @@ struct EditorView: View {
         thumbnails = rendered
         mismatched = misfits
     }
+
+    private var previewColumn: some View {
+        VStack(spacing: 0) {
+            PreviewPane(shot: selectedIndex.map { document.shots[$0] }, style: document.style,
+                        position: .init(index: selectedIndex ?? 0, count: document.shots.count),
+                        captionBand: ShotRenderer.captionBand(shots: document.shots, style: document.style),
+                        companion: selectedIndex.flatMap { ShotRenderer.companion(for: document.shots[$0], in: document.shots) },
+                        importImages: { replacing = nil; importing = true })
+            if !document.shots.isEmpty {
+                Divider()
+                Filmstrip(shots: document.shots, thumbnails: thumbnails, mismatched: mismatched, canvasAspect: canvasAspect,
+                          selection: $selection, canImport: document.shots.count < 10,
+                          importImages: { replacing = nil; importing = true },
+                          move: move, replace: { replacing = $0; importing = true }, remove: { removal = $0 })
+            }
+        }
+        .frame(minWidth: 360)
+    }
+
+    private var inspectorColumn: some View {
+        VStack(spacing: 0) {
+            Picker("Inspector", selection: $tab) {
+                ForEach(InspectorTab.allCases) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+            .padding(.bottom, 4)
+            Form {
+                if tab == .caption, let index = selectedIndex {
+                    CaptionInspector(shot: $document.shots[index], position: index + 1, style: document.style,
+                                     captionBand: ShotRenderer.captionBand(shots: document.shots, style: document.style),
+                                     others: otherShots(excluding: index),
+                                     replaceImage: { replacing = selection; importing = true })
+                }
+                StyleInspector(style: $document.style, tab: tab,
+                               varyLayouts: document.shots.isEmpty ? nil : { varyLayouts() },
+                               makeUniform: document.shots.isEmpty ? nil : { makeUniform() })
+            }
+            .formStyle(.grouped)
+        }
+        .frame(minWidth: 300, idealWidth: 340, maxWidth: 400)
+    }
+
+    /// Labels for every shot except `index`, for the Duo back-screen menu.
+    private func otherShots(excluding index: Int) -> [(id: UUID, label: String)] {
+        var result: [(id: UUID, label: String)] = []
+        for (offset, shot) in document.shots.enumerated() where offset != index {
+            let title = shot.headline.isEmpty ? shot.name : shot.headline.replacingOccurrences(of: "*", with: "")
+            result.append((shot.id, "Shot \(offset + 1): \(title)"))
+        }
+        return result
+    }
+
+    private func varyLayouts() { document.varyLayouts() }
+    private func makeUniform() { document.makeUniform() }
 
     private func ensureSelection() {
         if !document.shots.contains(where: { $0.id == selection }) { selection = document.shots.first?.id }

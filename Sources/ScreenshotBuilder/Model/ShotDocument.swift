@@ -37,3 +37,19 @@ struct ShotDocument: FileDocument, Codable {
         FileWrapper(regularFileWithContents: try JSONEncoder().encode(self))
     }
 }
+
+extension ShotDocument {
+    /// Gives each shot the next arrangement in the curated sequence. A one-shot set skips Duo.
+    mutating func varyLayouts() {
+        for index in shots.indices {
+            var arrangement = Arrangement.variedSequence[index % Arrangement.variedSequence.count]
+            if shots.count < 2 && arrangement == .duo { arrangement = .tiltLeft }
+            shots[index].arrangement = arrangement
+        }
+    }
+
+    /// Sets every shot back to the standard arrangement.
+    mutating func makeUniform() {
+        for index in shots.indices { shots[index].arrangement = .standard }
+    }
+}

@@ -542,4 +542,17 @@ struct BuilderTests {
         #expect(loaded.version == 3)
         #expect(loaded.shots[0].arrangement == .standard && loaded.shots[0].calloutRegion == .auto)
     }
+
+    @Test func varyLayoutsAssignsTheSequenceAndUniformResets() throws {
+        var document = ShotDocument()
+        document.shots = try (0..<5).map { _ in try fixture() }
+        document.varyLayouts()
+        #expect(document.shots.map(\.arrangement) == Array(Arrangement.variedSequence.prefix(5)))
+        document.makeUniform()
+        #expect(document.shots.allSatisfy { $0.arrangement == .standard })
+        document.shots = [try fixture(), try fixture()]
+        document.shots.removeLast()
+        document.varyLayouts()
+        #expect(document.shots[0].arrangement != .duo)
+    }
 }

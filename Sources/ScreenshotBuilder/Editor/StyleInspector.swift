@@ -8,6 +8,9 @@ enum InspectorTab: String, CaseIterable, Identifiable {
 struct StyleInspector: View {
     @Binding var style: SetStyle
     let tab: InspectorTab
+    /// Applies the curated arrangement sequence to the set, or resets it.
+    var varyLayouts: (() -> Void)?
+    var makeUniform: (() -> Void)?
 
     var body: some View {
         switch tab {
@@ -20,6 +23,15 @@ struct StyleInspector: View {
     @ViewBuilder private var layoutSection: some View {
         Section("Layout") {
             LayoutPicker(layout: $style.layout)
+            if let varyLayouts, let makeUniform {
+                HStack {
+                    Button { varyLayouts() } label: { Label("Vary layouts", systemImage: "wand.and.stars") }
+                        .help("Give each shot a different arrangement: tilt, duo, zoom, hero")
+                    Spacer()
+                    Button("Make uniform", action: makeUniform)
+                        .help("Set every shot back to the standard arrangement")
+                }
+            }
         }
     }
 
