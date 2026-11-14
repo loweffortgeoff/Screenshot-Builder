@@ -13,9 +13,11 @@ struct ArrangementInspector: View {
             if style.layout.hasCaption {
                 // Named apart from the set's picker above, so the two do not read as duplicates.
                 Picker("This shot", selection: $shot.composition) {
-                    Text("Follow set (\(style.composition.rawValue))").tag(CaptionComposition?.none)
+                    Text("Follow set (\(style.composition.title(in: style)))").tag(CaptionComposition?.none)
                     Divider()
-                    ForEach(CaptionComposition.allCases) { Label($0.rawValue, systemImage: $0.symbol).tag(CaptionComposition?.some($0)) }
+                    ForEach(CaptionComposition.allCases) {
+                        Label($0.title(in: style), systemImage: $0.symbol(in: style)).tag(CaptionComposition?.some($0))
+                    }
                 }
                 if let note = compositionNote {
                     Text(note).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -102,7 +104,7 @@ struct ArrangementInspector: View {
     /// Says why the shot draws as Stacked when its composition does not apply.
     private var compositionNote: String? {
         let wanted = shot.composition ?? style.composition
-        guard wanted != .stacked, style.effectiveComposition(for: shot) == .stacked else { return nil }
+        guard wanted != .stacked, !style.isLead(shot), style.effectiveComposition(for: shot) == .stacked else { return nil }
         switch wanted {
         case .bigNumber: return "Big number needs a stat. Add one in the Caption tab; until then this shot uses Stacked."
         case .sideBySide: return "Side by side does not fit \(shot.arrangement == .duo ? "Duo" : "Zoom"), so this shot uses Stacked."

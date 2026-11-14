@@ -244,7 +244,7 @@ struct PreviewPane: View {
             case .badge: style.font.font(size: max(11, metrics.subSize * 0.62 * scale), weight: CaptionWeight.bold)
             case .stat: ShotRenderer.statFont(style: style, size: metrics.statSize * scale)
             }
-            let centered = style.alignment == .center && editing != .badge
+            let centered = style.drawingStyle(for: shot).alignment == .center && editing != .badge
                 && layout.composition != .sideBySide
             TextField(editing.title, text: $draft, axis: .vertical)
                 .textFieldStyle(.plain)

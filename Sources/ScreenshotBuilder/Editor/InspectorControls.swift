@@ -10,6 +10,12 @@ extension CaptionComposition {
         case .textOnly: "textformat"
         }
     }
+
+    /// The name shown in pickers. Side by side is Lead on a portrait phone, where it draws a left caption over a large device.
+    func title(in style: SetStyle) -> String { self == .sideBySide && style.isPortraitPhone ? "Lead" : rawValue }
+    func symbol(in style: SetStyle) -> String {
+        self == .sideBySide && style.isPortraitPhone ? "rectangle.tophalf.inset.filled" : symbol
+    }
 }
 
 /// A font family drawn in itself: "Ag" over the family name.

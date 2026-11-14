@@ -1276,9 +1276,10 @@ struct BuilderTests {
 
     /// The composition a shot must resolve to, written out from the rules rather than read from the code under test.
     private func expectedComposition(_ wanted: CaptionComposition, layout: CaptionLayout, arrangement: Arrangement,
-                                     stat: String) -> CaptionComposition {
+                                     stat: String, portraitPhone: Bool) -> CaptionComposition {
         if !layout.hasCaption { return .stacked }
         switch wanted {
+        case .sideBySide where portraitPhone: return .stacked
         case .sideBySide: return arrangement == .duo || arrangement == .callout ? .stacked : wanted
         case .overlay: return arrangement == .callout ? .stacked : wanted
         case .bigNumber: return stat.trimmingCharacters(in: .whitespaces).isEmpty ? .stacked : wanted
@@ -1302,7 +1303,9 @@ struct BuilderTests {
                             let c = ShotRenderer.compose(shot: shot, style: style, sourceSize: phoneSource, captionBand: band,
                                                          companionSize: phoneSource)
                             let canvas = CGRect(origin: .zero, size: style.size)
-                            let expected = expectedComposition(composition, layout: layout, arrangement: arrangement, stat: shot.stat)
+                            let portraitPhone = preset.rawValue.hasPrefix("phone") && !landscape
+                            let expected = expectedComposition(composition, layout: layout, arrangement: arrangement, stat: shot.stat,
+                                                               portraitPhone: portraitPhone)
                             #expect(c.composition == expected, "\(label)")
                             let texts = [c.headlineRect, c.subtitleRect, c.statRect].filter { $0.width > 0 && $0.height > 0 }
                             if layout.hasCaption {
@@ -1334,15 +1337,27 @@ struct BuilderTests {
     @Test func compositionFallbacksResolveBySpec() throws {
         var shot = try fixture()
         var style = SetStyle()
+        style.preset = .pad13
         style.composition = .sideBySide
         for arrangement in [Arrangement.duo, .callout] {
             shot.arrangement = arrangement
             #expect(style.effectiveComposition(for: shot) == .stacked)
+            #expect(!style.isLead(shot))
         }
         for arrangement in [Arrangement.standard, .tiltLeft, .tiltRight, .heroLeft, .heroRight] {
             shot.arrangement = arrangement
             #expect(style.effectiveComposition(for: shot) == .sideBySide)
         }
+        // On a portrait phone, Side by side is Lead for every arrangement: Stacked with Lead's alignment and layout.
+        style.preset = .phone69
+        for arrangement in Arrangement.allCases {
+            shot.arrangement = arrangement
+            #expect(style.effectiveComposition(for: shot) == .stacked && style.isLead(shot), "\(arrangement)")
+        }
+        style.landscape = true
+        shot.arrangement = .standard
+        #expect(style.effectiveComposition(for: shot) == .sideBySide && !style.isLead(shot), "landscape phone keeps Side by side")
+        style.landscape = false
         style.composition = .bigNumber
         shot.arrangement = .standard
         #expect(style.effectiveComposition(for: shot) == .stacked)
@@ -1369,7 +1384,8 @@ struct BuilderTests {
         var shot = try fixture()
         shot.headline = "Everything you save, in one place"
         for preset in [OutputPreset.phone69, .phone55, .pad13, .pad11, .mac] {
-            for landscape in [false, true] where !(landscape && preset == .mac) {
+            // Portrait phones draw Lead instead (leadComposesLeftCaptionOverBleedingPhone).
+            for landscape in [false, true] where !(landscape && preset == .mac) && !(preset.rawValue.hasPrefix("phone") && !landscape) {
                 for arrangement in [Arrangement.standard, .tiltLeft, .tiltRight, .heroLeft, .heroRight] {
                     for alignment in CaptionAlignment.allCases {
                         var style = SetStyle()
@@ -1392,69 +1408,76 @@ struct BuilderTests {
                         let captionOnRight = arrangement == .heroLeft
                         #expect((c.headlineRect.midX > width / 2) == captionOnRight, "\(label) caption half")
                         #expect((device.midX > width / 2) != captionOnRight, "\(label) device half")
-                        let portraitPhone = [OutputPreset.phone69, .phone55].contains(preset) && !landscape
-                        if portraitPhone {
-                            // The device stands low and the caption sits above it, centered in that space.
-                            let top = try #require(c.layers.map(\.bounds.minY).min())
-                            #expect(c.subtitleRect.maxY <= top, "\(label) caption above the device")
-                            #expect(c.headlineRect.midY < top / 2 + style.size.height * 0.1, "\(label) centered above the device")
-                        } else {
-                            #expect(c.headlineRect.midY < style.size.height * 0.62 && c.headlineRect.midY > style.size.height * 0.3, "\(label) centered")
-                        }
+                        #expect(c.headlineRect.midY < style.size.height * 0.62 && c.headlineRect.midY > style.size.height * 0.3, "\(label) centered")
                     }
                 }
             }
         }
     }
 
-    @Test func sideBySideDeviceBoxOnPortraitPhone() throws {
-        var style = SetStyle()
-        style.composition = .sideBySide
-        let canvas = CGRect(origin: .zero, size: style.size)
-        let c = ShotRenderer.compose(shot: try fixture(), style: style, sourceSize: phoneSource)
-        let device = try #require(c.layers.last).bounds
-        // Fully inside side to side with its right edge on the safe margin, 0.70 to 0.74 of the canvas wide, and a
-        // deliberate bleed: 15% to 20% of its own height runs off the bottom edge, so the top sits near 0.40 to 0.45.
-        let margin = canvas.width * 0.06
-        #expect(device.minX >= 0 && abs(device.maxX - (canvas.maxX - margin)) < 0.5, "right edge on the safe margin: \(device)")
-        #expect(device.width >= canvas.width * 0.70 && device.width <= canvas.width * 0.74, "width \(device.width / canvas.width)")
-        let bleed = (device.maxY - canvas.maxY) / device.height
-        #expect(bleed >= 0.15 && bleed <= 0.20, "bleed \(bleed) of the device height")
-        #expect(device.minY >= canvas.height * 0.38 && device.minY <= canvas.height * 0.45, "top at \(device.minY / canvas.height)")
-        // The caption keeps Stacked's headline size and sits left-aligned above the device.
-        #expect(c.headlineRect.minX == margin && c.headlineRect.width <= canvas.width * 0.42 + 0.5, "left-aligned in the 0.42 measure")
-        style.composition = .stacked
-        let stacked = ShotRenderer.compose(shot: try fixture(), style: style, sourceSize: phoneSource)
-        #expect(abs(fontSize(c.headline) - fontSize(stacked.headline)) < 0.01, "Stacked's headline size")
-        #expect(c.subtitleRect.maxY <= device.minY)
-        // The Size slider scales the device in proportion.
-        style.composition = .sideBySide
-        style.imageScale = 0.7
-        let small = try #require(ShotRenderer.compose(shot: try fixture(), style: style, sourceSize: phoneSource).layers.last).bounds
-        #expect(abs(small.width / device.width - 0.7 / 0.94) < 0.01)
-        // Every arrangement stays inside side to side, and Hero left mirrors the placement.
-        style.imageScale = 0.94
-        for arrangement in [Arrangement.standard, .tiltLeft, .tiltRight, .heroLeft, .heroRight] {
-            var shot = try fixture()
-            shot.arrangement = arrangement
-            let placed = try #require(ShotRenderer.compose(shot: shot, style: style, sourceSize: phoneSource).layers.last).bounds
-            #expect(canvas.insetBy(dx: -0.5, dy: 0).contains(CGRect(x: placed.minX, y: canvas.minY, width: placed.width, height: 1)), "\(arrangement) \(placed)")
-            #expect(placed.maxY > canvas.maxY - 1, "\(arrangement) stands on the bottom edge")
+    @Test func leadComposesLeftCaptionOverBleedingPhone() throws {
+        for preset in [OutputPreset.phone69, .phone61, .phone55] {
+            for setLayout in [CaptionLayout.above, .below, .bleedTop] {
+                for setAlignment in CaptionAlignment.allCases {
+                    var style = SetStyle()
+                    style.preset = preset; style.layout = setLayout; style.alignment = setAlignment
+                    style.composition = .sideBySide
+                    let label = "\(preset) \(setLayout) \(setAlignment)"
+                    let canvas = CGRect(origin: .zero, size: style.size)
+                    var shot = try fixture()
+                    shot.badge = "New"
+                    let c = ShotRenderer.compose(shot: shot, style: style, sourceSize: phoneSource)
+                    #expect(c.composition == .stacked, "\(label)")
+                    #expect(c.warnings.isEmpty, "\(label) \(c.warnings)")
+                    // Whatever the set says, the caption is left-aligned on the margin and sits above the device.
+                    let margin = min(canvas.width, canvas.height) * 0.06
+                    for text in [c.headline, c.subtitle] {
+                        let paragraph = text.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
+                        #expect(paragraph?.alignment == .left, "\(label) left-aligned")
+                    }
+                    #expect(abs(c.headlineRect.minX - margin) < 0.5 && abs(c.badgeRect.minX - margin) < 0.5, "\(label) on the margin")
+                    let device = try #require(c.layers.last).bounds
+                    #expect(c.headlineRect.minY < canvas.height * 0.2, "\(label) caption at the top")
+                    #expect(c.subtitleRect.maxY <= device.minY, "\(label) caption above the device")
+                    // A large device that runs off the bottom edge: at least 0.80 of the canvas wide, or 0.75 on the 5.5-inch
+                    // phone, whose tall home-button frame meets Bleed bottom's height limit first.
+                    let floor: CGFloat = preset == .phone55 ? 0.75 : 0.80
+                    #expect(device.width >= canvas.width * floor, "\(label) width \(device.width / canvas.width)")
+                    #expect(device.maxY > canvas.maxY + 1, "\(label) bleeds off the bottom")
+                }
+            }
         }
     }
 
-    @Test func sideBySideLongHeadlineStepsDownAndStaysAboveTheDevice() throws {
-        var shot = try fixture()
-        shot.headline = "Beautifully organized notifications for everything you save"
-        shot.badge = "New"
+    @Test func leadSharesTheStackedBandAndBaseline() throws {
         var style = SetStyle()
-        style.composition = .sideBySide
-        let band = ShotRenderer.captionBand(shots: [shot], style: style)
-        let c = ShotRenderer.compose(shot: shot, style: style, sourceSize: phoneSource, captionBand: band)
-        let device = try #require(c.layers.last).bounds
-        #expect(c.warnings.isEmpty, "\(c.warnings)")
-        #expect(try #require(band.group(for: .sideBySide)).headScale < 1)
-        #expect(c.badgeRect.minY >= 0 && c.subtitleRect.maxY <= device.minY)
+        style.layout = .bleedBottom
+        style.alignment = .leading
+        let stacked = try fixture()
+        var lead = try fixture()
+        lead.headline = "A longer headline that wraps onto two lines"
+        lead.composition = .sideBySide
+        let band = ShotRenderer.captionBand(shots: [stacked, lead], style: style)
+        #expect(Set(band.groups.keys) == [.stacked], "Lead joins the Stacked group")
+        let a = ShotRenderer.compose(shot: stacked, style: style, sourceSize: phoneSource, captionBand: band)
+        let b = ShotRenderer.compose(shot: lead, style: style, sourceSize: phoneSource, captionBand: band)
+        #expect(a.headlineRect.minY == b.headlineRect.minY, "headlines start on one line")
+        #expect(a.layers.last?.bounds == b.layers.last?.bounds, "Lead equals Stacked with Left and Bleed bottom")
+    }
+
+    @Test func version4PortraitSideBySideOpensAsLead() throws {
+        var document = ShotDocument()
+        document.style.composition = .sideBySide
+        document.shots = [try fixture()]
+        var json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(document)) as! [String: Any]
+        json["version"] = 4
+        let loaded = try ShotDocument.decode(JSONSerialization.data(withJSONObject: json))
+        let shot = try #require(loaded.shots.first)
+        #expect(loaded.style.composition == .sideBySide, "the stored choice is kept")
+        #expect(loaded.style.isLead(shot))
+        let c = ShotRenderer.compose(shot: shot, style: loaded.style, sourceSize: phoneSource)
+        let canvas = CGRect(origin: .zero, size: loaded.style.size)
+        #expect(try #require(c.layers.last).bounds.maxY > canvas.maxY + 1, "renders as Lead")
     }
 
     @Test func sideBySideShrinksTheHeadlineTogetherAndKeepsWordsWhole() throws {
@@ -1677,7 +1700,9 @@ struct BuilderTests {
         let sideC = try shot("Side one"), sideD = try shot("Side two has a longer headline to wrap", .sideBySide)
         var sideE = sideC; sideE.composition = .sideBySide
         let bigF = try shot("Label", .bigNumber, stat: "2×")
-        let style = SetStyle()
+        // Side by side keeps its own group off portrait phones, where it is Lead.
+        var style = SetStyle()
+        style.preset = .pad13
         let shots = [shortA, longB, sideE, sideD, bigF]
         let band = ShotRenderer.captionBand(shots: shots, style: style)
         #expect(Set(band.groups.keys) == [.stacked, .sideBySide, .bigNumber])

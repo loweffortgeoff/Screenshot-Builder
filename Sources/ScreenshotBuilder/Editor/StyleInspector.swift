@@ -33,7 +33,7 @@ struct StyleInspector: View {
             LayoutPicker(layout: $style.layout)
             if style.layout.hasCaption {
                 Picker("Composition", selection: $style.composition) {
-                    ForEach(CaptionComposition.allCases) { Label($0.rawValue, systemImage: $0.symbol).tag($0) }
+                    ForEach(CaptionComposition.allCases) { Label($0.title(in: style), systemImage: $0.symbol(in: style)).tag($0) }
                 }
                 .help("How the caption and the device share the canvas. Each shot can override it.")
             }

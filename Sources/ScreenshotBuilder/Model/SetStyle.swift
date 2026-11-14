@@ -203,8 +203,30 @@ struct SetStyle: Codable, Equatable {
     }
     var dimensionLabel: String { "\(Int(size.width)) × \(Int(size.height))" }
 
+    /// A phone-shaped preset held upright.
+    var isPortraitPhone: Bool {
+        let family = DeviceSpec.for(preset).family
+        return (family == .phone || family == .classicPhone) && !landscape
+    }
+
+    /// Lead: on a portrait phone a device and a readable caption do not fit side by side, so Side by side draws as
+    /// Stacked with a left caption over a large device that runs off the bottom edge, whatever the set's layout.
+    func isLead(_ shot: Shot) -> Bool {
+        layout.hasCaption && isPortraitPhone && (shot.composition ?? composition) == .sideBySide
+    }
+
+    /// The style `shot` draws with: the set style, with Lead's alignment and layout when the shot is Lead.
+    func drawingStyle(for shot: Shot) -> SetStyle {
+        guard isLead(shot) else { return self }
+        var lead = self
+        lead.alignment = .leading
+        lead.layout = .bleedBottom
+        return lead
+    }
+
     /// The composition `shot` really draws with. Rules, in order:
     /// - Screenshot only has no caption, so there is nothing to compose: Stacked, and Text only does not apply.
+    /// - Side by side on a portrait phone is Lead, which draws as Stacked (see `isLead`).
     /// - Side by side needs one device beside the caption, so Duo and Zoom shots fall back to Stacked.
     /// - Overlay hides the lower third of the screen under its band, where a Zoom source may sit and its card needs free
     ///   canvas, so Zoom shots fall back to Stacked. Duo works.
@@ -213,6 +235,7 @@ struct SetStyle: Codable, Equatable {
         guard layout.hasCaption else { return .stacked }
         let wanted = shot.composition ?? composition
         switch wanted {
+        case .sideBySide where isPortraitPhone: return .stacked
         case .sideBySide where shot.arrangement == .duo || shot.arrangement == .callout: return .stacked
         case .overlay where shot.arrangement == .callout: return .stacked
         case .bigNumber where shot.stat.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty: return .stacked

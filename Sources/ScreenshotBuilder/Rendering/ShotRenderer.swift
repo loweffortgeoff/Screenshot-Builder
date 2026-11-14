@@ -94,11 +94,6 @@ enum ShotRenderer {
         var autoRect: CGRect = .zero
     }
 
-    /// Side by side on a portrait iPhone: the device's width as a fraction of the canvas width at the default Size, and the
-    /// fraction of its height that runs off the bottom edge.
-    static let portraitSideDeviceWidth: CGFloat = 0.72
-    static let portraitSideBleed: CGFloat = 0.16
-
     /// Card border width for a canvas, the one white border in a Zoom shot.
     static func cardBorder(unit: CGFloat) -> CGFloat { unit * 0.0034 }
     /// The source marker's accent stroke stays well under half the card border, so it never reads as a second card.
@@ -144,9 +139,6 @@ enum ShotRenderer {
         var statBlock: CGFloat = 0
         /// Side by side keeps its text in a measure of at most this fraction of the canvas width.
         static let sideMeasure: CGFloat = 0.42
-        /// Portrait phone-shaped canvases. Side by side sets their device low on the canvas, so the caption has the
-        /// full measure above it and the headline keeps Stacked's size.
-        var portraitPhone = false
         /// Every composition but Stacked keeps words whole when it wraps a headline to match its group's line count.
         var keepsWordsWhole = false
         /// Side by side sets type a little smaller than Stacked, because the measure is narrow.
@@ -155,12 +147,6 @@ enum ShotRenderer {
         /// Text only is an intro or outro card: a big headline and a larger subtitle.
         static let textOnlyFactor: CGFloat = 2.2
         static let textOnlySubFactor: CGFloat = 1.35
-
-        /// A phone-shaped preset held upright.
-        static func isPortraitPhone(_ style: SetStyle) -> Bool {
-            let family = DeviceSpec.for(style.preset).family
-            return (family == .phone || family == .classicPhone) && !style.landscape
-        }
 
         init(style: SetStyle, composition: CaptionComposition = .stacked, headScale: CGFloat = 1) {
             let size = style.size
@@ -177,10 +163,9 @@ enum ShotRenderer {
             case .stacked, .bigNumber:
                 break
             case .sideBySide:
-                portraitPhone = Self.isPortraitPhone(style)
                 textWidth = min(textWidth, size.width * Self.sideMeasure)
-                headFactor = (portraitPhone ? 1 : Self.sideHeadFactor) * headScale
-                headLines = portraitPhone ? 4 : 3
+                headFactor = Self.sideHeadFactor * headScale
+                headLines = 3
                 subLines = 3
             case .overlay:
                 // The band's padding comes out of the measure, so the band itself spans the usual width.
@@ -262,7 +247,7 @@ enum ShotRenderer {
     private static func headScale(for shots: [Shot], style: SetStyle, composition: CaptionComposition) -> CGFloat {
         guard composition == .sideBySide || composition == .textOnly else { return 1 }
         // These sizes are bigger than the old ones, so the steps run further down to keep every headline that fit before.
-        let steps: [CGFloat] = composition == .textOnly || CaptionMetrics.isPortraitPhone(style)
+        let steps: [CGFloat] = composition == .textOnly
             ? [1, 0.92, 0.85, 0.78, 0.72, 0.66, 0.6, 0.55, 0.5, 0.45, 0.4] : [1, 0.92, 0.85, 0.78, 0.72]
         for scale in steps {
             let metrics = CaptionMetrics(style: style, composition: composition, headScale: scale)
@@ -354,6 +339,7 @@ enum ShotRenderer {
 
     private static func compose(shot: Shot, style: SetStyle, sourceSize: CGSize, captionBand: CaptionBand?,
                                 companionSize: CGSize?, anchor: OverlayAnchor?) -> Composition {
+        let style = style.drawingStyle(for: shot)
         let size = style.size
         let givenCompanionSize = companionSize
         let composition = style.effectiveComposition(for: shot)
@@ -434,34 +420,20 @@ enum ShotRenderer {
                                           dy: imageArea.height * (1 - style.imageScale) / 2)
         case .sideBySide:
             // Caption on the left half and device on the right, except Hero left, which pushes the device left and so
-            // takes the caption to the right. The device box is vertically centered, except on a portrait iPhone.
+            // takes the caption to the right. The device box is vertically centered. Portrait phones never get here (Lead).
             let captionRight = shot.arrangement == .heroLeft
             sideCaptionRight = captionRight
             sideColumnX = captionRight ? size.width - margin - textWidth : margin
-            if metrics.portraitPhone {
-                // A half canvas is too narrow for a device and a readable caption side by side. The device is large and
-                // deliberate: 72% of the canvas wide, on the outer safe margin, and runs off the bottom edge by a fixed
-                // share of its height. The caption sits above it.
-                let aspect = frameStyle == .device ? DeviceFrame.outerSize(spec, landscape: false) : sourceSize
-                let width = min(size.width * Self.portraitSideDeviceWidth * CGFloat(style.imageScale) / 0.94, size.width - margin * 2)
-                let height = width * aspect.height / aspect.width
-                let box = CGRect(x: captionRight ? margin : size.width - margin - width,
-                                 y: size.height - height * (1 - Self.portraitSideBleed), width: width, height: height)
-                zone = CGRect(x: captionRight ? 0 : size.width * 0.1, y: 0, width: size.width * 0.9, height: size.height)
-                imageArea = box
-                available = box
-            } else {
-                let gutter = margin * 0.6
-                let zoneMin = captionRight ? 0 : sideColumnX + textWidth + gutter
-                let zoneMax = captionRight ? sideColumnX - gutter : size.width
-                zone = CGRect(x: zoneMin, y: 0, width: zoneMax - zoneMin, height: size.height)
-                let boxHeight = size.height - margin * 1.25 * 2
-                imageArea = CGRect(x: captionRight ? margin * 0.6 : zoneMin, y: (size.height - boxHeight) / 2,
-                                   width: (captionRight ? zoneMax : size.width - margin * 0.6) - (captionRight ? margin * 0.6 : zoneMin),
-                                   height: boxHeight)
-                available = imageArea.insetBy(dx: imageArea.width * (1 - style.imageScale) / 2,
-                                              dy: imageArea.height * (1 - style.imageScale) / 2)
-            }
+            let gutter = margin * 0.6
+            let zoneMin = captionRight ? 0 : sideColumnX + textWidth + gutter
+            let zoneMax = captionRight ? sideColumnX - gutter : size.width
+            zone = CGRect(x: zoneMin, y: 0, width: zoneMax - zoneMin, height: size.height)
+            let boxHeight = size.height - margin * 1.25 * 2
+            imageArea = CGRect(x: captionRight ? margin * 0.6 : zoneMin, y: (size.height - boxHeight) / 2,
+                               width: (captionRight ? zoneMax : size.width - margin * 0.6) - (captionRight ? margin * 0.6 : zoneMin),
+                               height: boxHeight)
+            available = imageArea.insetBy(dx: imageArea.width * (1 - style.imageScale) / 2,
+                                          dy: imageArea.height * (1 - style.imageScale) / 2)
         }
         // Only Stacked and Big number honor the bleed layouts.
         let bleeds = (composition == .stacked || composition == .bigNumber) && (style.layout == .bleedBottom || style.layout == .bleedTop)
@@ -566,9 +538,6 @@ enum ShotRenderer {
         let captionTop: CGFloat
         switch composition {
         case .stacked, .bigNumber: captionTop = captionOnTop ? top : size.height - margin * 1.6 - captionHeight
-        case .sideBySide where metrics.portraitPhone:
-            // Centered in the space above the device, which stands low on the canvas.
-            captionTop = max(top, top + (base.minY - metrics.separation - top - captionHeight) / 2)
         case .sideBySide: captionTop = (size.height - captionHeight) / 2
         // An intro or outro card sits a little above the middle, where the eye puts the center.
         case .textOnly: captionTop = max(margin, min(size.height * 0.45 - captionHeight / 2, size.height - margin - captionHeight))
@@ -821,19 +790,6 @@ enum ShotRenderer {
                     var moved = layer(in: l.frame.offsetBy(dx: 0, dy: shift), capture: l.usesCompanion ? companionSize : sourceSize,
                                       rotation: l.rotation, companion: l.usesCompanion)
                     if l.device == nil { moved.frame = l.frame.offsetBy(dx: 0, dy: shift) }
-                    return moved
-                }
-            }
-        }
-        // Side by side on a portrait iPhone: every arrangement stands on the bottom edge and runs off it by the same share.
-        if composition == .sideBySide, metrics.portraitPhone,
-           let bounds = layers.map(\.bounds).reduce(nil, { (acc: CGRect?, r) in acc.map { $0.union(r) } ?? r }) {
-            let dy = size.height + bounds.height * Self.portraitSideBleed - bounds.maxY
-            if abs(dy) > 0.01 {
-                layers = layers.map { l in
-                    var moved = layer(in: l.frame.offsetBy(dx: 0, dy: dy), capture: l.usesCompanion ? companionSize : sourceSize,
-                                      rotation: l.rotation, companion: l.usesCompanion)
-                    if l.device == nil { moved.frame = l.frame.offsetBy(dx: 0, dy: dy) }
                     return moved
                 }
             }
