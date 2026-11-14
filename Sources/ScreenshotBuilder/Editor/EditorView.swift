@@ -78,6 +78,7 @@ struct EditorView: View {
                         Label("Landscape", systemImage: "rectangle").tag(true)
                     }
                     .pickerStyle(.segmented)
+                    .labelStyle(.titleAndIcon)
                     .help("Portrait or landscape output")
                 }
             }

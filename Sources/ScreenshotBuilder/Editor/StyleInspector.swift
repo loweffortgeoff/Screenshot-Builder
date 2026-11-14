@@ -130,17 +130,8 @@ struct StyleInspector: View {
 
     @ViewBuilder private var deviceSection: some View {
         Section {
-            Picker("Size", selection: $style.preset) {
-                ForEach(OutputPreset.allCases) { Text($0.title).tag($0) }
-            }
-            if style.preset != .mac {
-                Picker("Orientation", selection: $style.landscape) {
-                    Text("Portrait").tag(false)
-                    Text("Landscape").tag(true)
-                }
-                .pickerStyle(.segmented)
-            }
-            LabeledContent("Export", value: "\(style.dimensionLabel) px PNG")
+            // Size and orientation live in the toolbar; this row confirms what export writes.
+            LabeledContent("Export", value: "\(style.preset.title)\(style.landscape && style.preset != .mac ? " landscape" : ""), \(style.dimensionLabel) px PNG")
         } header: {
             Text("Output")
         }
@@ -176,7 +167,11 @@ struct StyleInspector: View {
             }
             LabeledContent("Size") {
                 // No step: a stepped macOS slider draws a dense row of tick marks.
-                Slider(value: $style.imageScale, in: 0.5...1).frame(maxWidth: 150)
+                HStack {
+                    Slider(value: $style.imageScale, in: 0.5...1).frame(maxWidth: 130)
+                    Text(style.imageScale, format: .percent.precision(.fractionLength(0)))
+                        .monospacedDigit().foregroundStyle(.secondary).frame(width: 40, alignment: .trailing)
+                }
             }
             Toggle("Shadow", isOn: $style.shadow)
             if style.frameStyle == .device {

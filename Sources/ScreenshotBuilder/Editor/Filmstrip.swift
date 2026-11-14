@@ -80,7 +80,7 @@ struct Filmstrip: View {
                 if let id { withAnimation { scroller.scrollTo(id, anchor: .center) } }
             }
         }
-        .frame(height: canvasAspect < 1 ? 136 : 104)
+        .frame(height: canvasAspect < 1 ? 168 : 120)
         .background(.bar)
     }
 }
