@@ -1,6 +1,6 @@
 # Chapter 4 product pass plan
 
-Status. Draft, awaiting Geoff's approval. The spec is `docs/superpowers/specs/2026-11-14-chapter-4-product-pass.md`.
+Status. Approved by Geoff on 2026-11-14. Work runs on `feature/chapter-4` in `~/Developer/Screenshot-Builder-ch4`, and Claude pushes only that branch. The spec is `docs/superpowers/specs/2026-11-14-chapter-4-product-pass.md`.
 
 Chapter 4 makes Screenshot Builder produce sets like Geoff's own App Store sets with fewer manual steps. Users get six starter looks, one decorative background layer, layout-placed eyebrows and accents, a Lead composition for portrait iPhone, and a clearer inspector. The rule is product value, not a score. One council round runs at the end, and then the chapter stops. The milestones, in order, are M0 judge calibration, M1 Lead, M2 decorations, M3 backdrops, M4 looks, M5 editor polish, M6 Zoom card, M7 frame defects, M8 code review, M9 council review, M10 hands-on checklist and closeout.
 

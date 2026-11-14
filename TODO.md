@@ -1,8 +1,7 @@
 # TODO
 
 ## Next
-- Chapter 4 approval (Geoff): read the draft spec `docs/superpowers/specs/2026-11-14-chapter-4-product-pass.md` and plan `docs/superpowers/plans/2026-11-14-chapter-4-product-pass.md`, and answer Q1 to Q7 (Q1 is the Zoom card and H1).
-- Chapter 3 hands-on acceptance (Geoff, about 20 minutes): the end checklist in `docs/superpowers/plans/2026-11-14-chapter-3-canvas-and-compositions.md`. Pinch zoom is not verified (it cannot be scripted).
+- Chapter 4 (branch `feature/chapter-4`): milestones M0 to M10 in `docs/superpowers/plans/2026-11-14-chapter-4-product-pass.md`.
 - iPad acceptance: not tested by Geoff (2026-11-14, no iPad Pro on hand). iPad output can be checked with iPad Pro simulator captures; Geoff's acceptance stays open.
 
 ## Backlog
@@ -13,6 +12,8 @@
 - Outside v1: freeform editing, layers, stickers, AI copy, localization management, and direct upload. These do not serve the initial fixed-layout workflow.
 
 ## Done
+- 2026-11-14 — Chapter 4 spec and plan approved by Geoff (Q1 B, Q2 keep 1.6×, defaults for Q3 to Q7).
+- 2026-11-14 — Chapter 3 hands-on acceptance passed (Geoff). The Set view drag and the Zoom ring fixes are in `fc34097` and `79a6186`. Pinch zoom is not scripted.
 - 2026-11-14 — Chapter 3 merged to `main` at `79a6186`. Chapter 4 replaces the score target with a product success sentence (Sol review).
 - 2026-11-14 — Chapter 3 implemented (milestones Z, C, E, P, K, N): Zoom quality, fit-to-pane canvas with zoom and Set view, on-canvas editing and drag, real weights, tab craft, iPad fill, Mac fit and Window only, MacBook redraw, five caption compositions, format v4. Code review by code-reviewer and Fable; fixes committed. Council medians 7.3, 7.4, 7.4 (branch feature/chapter-3).
 - 2026-11-14 — Geoff's hands-on check of chapters 1–2 on MacBook Pro (iPhone 6.9 and Mac outputs). Findings folded into the chapter 3 spec; iPad not tested.
