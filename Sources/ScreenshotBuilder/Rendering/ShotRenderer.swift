@@ -31,8 +31,6 @@ enum ShotRenderer {
         /// Big number: the stat, drawn above the headline in the accent color.
         var stat: NSAttributedString?
         var statRect: CGRect = .zero
-        /// Text only: the short accent bar above the caption. Zero for every other composition.
-        var accentBar: CGRect = .zero
         /// The column the caption text wraps in. Its left edge and width are the editor's text field; the other
         /// compositions do not share Stacked's centered measure.
         var textColumn: CGRect = .zero
@@ -98,13 +96,15 @@ enum ShotRenderer {
 
     /// Side by side on a portrait iPhone: the device's width as a fraction of the canvas width at the default Size, and the
     /// fraction of its height that runs off the bottom edge.
-    static let portraitSideDeviceWidth: CGFloat = 0.56
-    static let portraitSideBleed: CGFloat = 0.05
+    static let portraitSideDeviceWidth: CGFloat = 0.72
+    static let portraitSideBleed: CGFloat = 0.16
 
     /// Card border width for a canvas, the one white border in a Zoom shot.
     static func cardBorder(unit: CGFloat) -> CGFloat { unit * 0.0034 }
     /// The source marker's accent stroke stays well under half the card border, so it never reads as a second card.
     static func markerStrokeWidth(cardBorder: CGFloat) -> CGFloat { cardBorder * 0.35 }
+    /// The marker's halo: widest layer first, each reaching `reach` stroke widths past the ring's edge at `alpha`.
+    static let markerHaloSteps: [(reach: CGFloat, alpha: CGFloat)] = [(3, 0.14), (2, 0.22), (1, 0.34)]
 
     /// The lens polygon, in order: the ring's two corners nearest the card, then the card's two corners facing the ring
     /// (right one first, so edges do not cross). Left corners pair with left corners.
@@ -155,14 +155,6 @@ enum ShotRenderer {
         /// Text only is an intro or outro card: a big headline and a larger subtitle.
         static let textOnlyFactor: CGFloat = 2.2
         static let textOnlySubFactor: CGFloat = 1.35
-        /// Text only: the accent bar above the caption, as a fraction of the canvas width and of the headline size.
-        static let barLengthFactor: CGFloat = 0.12
-        static let barThicknessFactor: CGFloat = 0.12
-        /// Text only: the accent bar's length and thickness.
-        var barLength: CGFloat = 0
-        var barThickness: CGFloat = 0
-        /// Text only: the bar plus its gap to what follows. Zero for every other composition.
-        var barBlock: CGFloat = 0
 
         /// A phone-shaped preset held upright.
         static func isPortraitPhone(_ style: SetStyle) -> Bool {
@@ -203,11 +195,6 @@ enum ShotRenderer {
             gap = unit * 0.022 * style.textSize.scale
             separation = unit * 0.038
             statSize = headSize * Self.statFactor
-            if composition == .textOnly {
-                barLength = size.width * Self.barLengthFactor
-                barThickness = headSize * Self.barThicknessFactor
-                barBlock = barThickness + gap * 1.4
-            }
             // Room for the allowed headline lines and subtitle lines.
             let head = CaptionFont.lineHeight(style.headlineFont(size: headSize)) * 0.96
             let sub = CaptionFont.lineHeight(style.subtitleFont(size: subSize)) * 1.08
@@ -215,7 +202,7 @@ enum ShotRenderer {
             if composition == .bigNumber {
                 statBlock = ceil(CaptionFont.lineHeight(ShotRenderer.statFont(style: style, size: statSize)) * Self.statLineHeight) + gap * 0.5
             }
-            maxBand = maxText + statBlock + barBlock
+            maxBand = maxText + statBlock
         }
         static let statLineHeight: CGFloat = 0.9
     }
@@ -265,7 +252,7 @@ enum ShotRenderer {
         let needed = shots.map { captionHeight(shot: $0, style: style, metrics: metrics, lines: lines).total }.max() ?? 0
         let badgeRow = shots.contains { !$0.badge.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         let extra = badgeRow ? badgeRowHeight(metrics) : 0
-        return CaptionBand.Group(height: min(max(needed, 1), metrics.maxText) + metrics.statBlock + metrics.barBlock + extra,
+        return CaptionBand.Group(height: min(max(needed, 1), metrics.maxText) + metrics.statBlock + extra,
                                  lines: max(1, lines), badgeRow: badgeRow, headScale: scale)
     }
 
@@ -285,7 +272,7 @@ enum ShotRenderer {
                         && !hasWord(widerThan: metrics.textWidth, in: text) else { return false }
                 guard composition == .textOnly else { return true }
                 let badge = shot.badge.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0 : badgeRowHeight(metrics)
-                let total = captionHeight(shot: shot, style: style, metrics: metrics, lines: nil).total + metrics.barBlock + badge
+                let total = captionHeight(shot: shot, style: style, metrics: metrics, lines: nil).total + badge
                 return total <= style.size.height * 0.84
             }
             if fits { return scale }
@@ -399,12 +386,11 @@ enum ShotRenderer {
         let subtitle = subtitleText(shot.subtitle, style: textStyle, size: metrics.subSize)
         let caption = captionHeight(shot: shot, style: style, metrics: metrics, lines: group?.lines)
         let statExtra = composition == .bigNumber ? metrics.statBlock : 0
-        let barExtra = composition == .textOnly && hasCaption ? metrics.barBlock : 0
         let needed = caption.total + statExtra
         let badgeText = shot.badge.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
         let badgeRow = group?.badgeRow ?? !badgeText.isEmpty
         let badgeExtra = hasCaption && badgeRow ? Self.badgeRowHeight(metrics) : 0
-        let captionHeight = hasCaption ? (group?.height ?? (stacksCaption ? metrics.maxBand + badgeExtra : needed + badgeExtra + barExtra)) : 0
+        let captionHeight = hasCaption ? (group?.height ?? (stacksCaption ? metrics.maxBand + badgeExtra : needed + badgeExtra)) : 0
         let separation = hasCaption ? metrics.separation : 0
         let top = margin * 1.25
         let spec = DeviceSpec.for(style.preset)
@@ -453,15 +439,15 @@ enum ShotRenderer {
             sideCaptionRight = captionRight
             sideColumnX = captionRight ? size.width - margin - textWidth : margin
             if metrics.portraitPhone {
-                // A half canvas is too narrow for a device and a readable caption side by side. The device stands in the
-                // outer 56% of the canvas, fully inside it, and rises off the bottom edge; the caption sits above it.
+                // A half canvas is too narrow for a device and a readable caption side by side. The device is large and
+                // deliberate: 72% of the canvas wide, on the outer safe margin, and runs off the bottom edge by a fixed
+                // share of its height. The caption sits above it.
                 let aspect = frameStyle == .device ? DeviceFrame.outerSize(spec, landscape: false) : sourceSize
-                let edge = size.width * 0.03
-                let width = min(size.width * Self.portraitSideDeviceWidth * CGFloat(style.imageScale) / 0.94, size.width - edge * 2)
+                let width = min(size.width * Self.portraitSideDeviceWidth * CGFloat(style.imageScale) / 0.94, size.width - margin * 2)
                 let height = width * aspect.height / aspect.width
-                let box = CGRect(x: captionRight ? edge : size.width - edge - width,
+                let box = CGRect(x: captionRight ? margin : size.width - margin - width,
                                  y: size.height - height * (1 - Self.portraitSideBleed), width: width, height: height)
-                zone = CGRect(x: captionRight ? 0 : size.width * 0.3, y: 0, width: size.width * 0.7, height: size.height)
+                zone = CGRect(x: captionRight ? 0 : size.width * 0.1, y: 0, width: size.width * 0.9, height: size.height)
                 imageArea = box
                 available = box
             } else {
@@ -589,7 +575,7 @@ enum ShotRenderer {
         case .overlay: captionTop = (panel?.minY ?? 0) + panelPad
         }
         let stacked = composition == .stacked || composition == .bigNumber
-        let badgeY = (captionOnTop || !stacked ? captionTop : captionTop + max(0, captionHeight - needed - badgeExtra)) + barExtra
+        let badgeY = (captionOnTop || !stacked ? captionTop : captionTop + max(0, captionHeight - needed - badgeExtra))
         let textY = badgeY + badgeExtra
         let headY = textY + statExtra
         func textRect(width: CGFloat, y: CGFloat, height: CGFloat) -> CGRect {
@@ -608,12 +594,6 @@ enum ShotRenderer {
             let x = composition == .sideBySide ? sideColumnX : style.alignment == .center ? centered(pillWidth) : columnX
             badge = text
             badgeRect = CGRect(x: x, y: badgeY, width: pillWidth, height: pillHeight)
-        }
-        // Text only: a short rounded accent bar above the badge and headline, aligned like the text.
-        var accentBar = CGRect.zero
-        if barExtra > 0 {
-            let x = style.alignment == .center ? centered(metrics.barLength) : columnX
-            accentBar = CGRect(x: x, y: captionTop, width: metrics.barLength, height: metrics.barThickness)
         }
         // Big number: the stat shrinks to one line when it is too wide, and the shot warns if it still cannot fit.
         var stat: NSAttributedString?
@@ -891,7 +871,7 @@ enum ShotRenderer {
         let device = layers.last?.device
         let fit = rect.width / sourceSize.width
         var warnings: [String] = []
-        if hasCaption && needed + barExtra > metrics.maxBand + 0.5 { warnings.append("Caption is too long. Shorten the headline or subtitle before export.") }
+        if hasCaption && needed > metrics.maxBand + 0.5 { warnings.append("Caption is too long. Shorten the headline or subtitle before export.") }
         if hasCaption && [headline, subtitle].contains(where: { Self.hasWord(widerThan: textWidth, in: $0) }) {
             warnings.append("A caption word is too wide. Add a space or use a shorter word.")
         }
@@ -927,7 +907,7 @@ enum ShotRenderer {
                            headlineRect: headlineRect, subtitleRect: subtitleRect,
                            headline: headline, subtitle: subtitle, badge: badge, badgeRect: badgeRect, warnings: warnings,
                            advisories: advisories, layers: layers, callout: callout, composition: composition, stat: stat,
-                           statRect: statRect, accentBar: accentBar,
+                           statRect: statRect,
                            textColumn: CGRect(x: columnX, y: badgeY,
                                               width: textWidth, height: max(0, captionHeight)),
                            panel: panel)
@@ -1099,12 +1079,6 @@ enum ShotRenderer {
             drawFrostedPanel(panel, in: cg, style: style, size: size, position: style.spanSet ? position : .single,
                              glowBoost: glowBoost, unit: unit, pixelScale: pixelScale)
         }
-        if style.layout.hasCaption, composition.accentBar != .zero {
-            let bar = composition.accentBar
-            cg.addPath(CGPath(roundedRect: bar, cornerWidth: bar.height / 2, cornerHeight: bar.height / 2, transform: nil))
-            cg.setFillColor(style.accent.nsColor.cgColor)
-            cg.fillPath()
-        }
         if style.layout.hasCaption, let badge = composition.badge {
             // Accent pill with text in black or white, whichever reads better on the accent.
             let pill = composition.badgeRect
@@ -1194,6 +1168,19 @@ enum ShotRenderer {
                 cg.fillPath()
             }
             if callout.marker != .none {
+                // A soft accent halo just outside the stroke, kept on the screen and out of the ring.
+                cg.saveGState()
+                cg.addPath(screenClip ?? CGPath(rect: cg.boundingBoxOfClipPath, transform: nil))
+                cg.addPath(CGPath(roundedRect: ring, cornerWidth: unit * 0.008, cornerHeight: unit * 0.008, transform: nil))
+                cg.clip(using: .evenOdd)
+                cg.setStrokeColor(accent)
+                for step in markerHaloSteps {
+                    cg.setAlpha(step.alpha)
+                    cg.setLineWidth(stroke * (1 + 2 * step.reach))
+                    cg.addPath(ringPath)
+                    cg.strokePath()
+                }
+                cg.restoreGState()
                 cg.addPath(ringPath)
                 cg.setStrokeColor(accent)
                 cg.setLineWidth(stroke)
@@ -1240,7 +1227,7 @@ enum ShotRenderer {
                                cornerHeight: callout.cornerRadius + border, transform: nil)
         cg.saveGState()
         cg.setShadow(offset: CGSize(width: 0, height: -unit * 0.012 * pixelScale), blur: unit * 0.045 * pixelScale,
-                     color: CGColor(gray: 0, alpha: 0.30))
+                     color: CGColor(gray: 0, alpha: 0.40))
         cg.addPath(outerPath)
         cg.setFillColor(CGColor(gray: 1, alpha: 0.96))
         cg.fillPath()

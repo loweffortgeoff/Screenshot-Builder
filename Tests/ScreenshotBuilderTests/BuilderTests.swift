@@ -876,7 +876,19 @@ struct BuilderTests {
         }
         #expect((none.max() ?? 0) <= 0.05, "No marker draws no outline")
         let border = ShotRenderer.cardBorder(unit: 1320)
-        #expect(ShotRenderer.markerStrokeWidth(cardBorder: border) <= border * 0.4)
+        let stroke = ShotRenderer.markerStrokeWidth(cardBorder: border)
+        #expect(stroke <= border * 0.4)
+        // The soft halo tints the pixels just outside the ring toward the accent, and nothing inside the ring changes.
+        let halo = CGPoint(x: callout.highlight.midX, y: cardBelow ? callout.highlight.minY - stroke * 1.2 : callout.highlight.maxY + stroke * 1.2)
+        try #require(screen.contains(halo) && !callout.rect.contains(halo))
+        func tint(_ bitmap: NSBitmapImageRep, _ p: CGPoint) throws -> CGFloat {
+            let color = try #require(bitmap.colorAt(x: Int(p.x), y: Int(p.y))?.usingColorSpace(.sRGB))
+            return color.greenComponent - max(color.redComponent, color.blueComponent)
+        }
+        #expect(try tint(outline, halo) > tint(plain, halo) + 0.08, "accent halo just outside the ring")
+        #expect(try tint(spot, halo) > tint(plain, halo) + 0.04, "accent halo outside a spotlight ring")
+        let inside = CGPoint(x: callout.highlight.midX, y: callout.highlight.midY)
+        #expect(try abs(brightness(spot, inside) - brightness(plain, inside)) < 0.01, "nothing is filled inside the ring")
     }
 
     @Test func versionTwoShotsOpenAsStandard() throws {
@@ -1401,12 +1413,16 @@ struct BuilderTests {
         let canvas = CGRect(origin: .zero, size: style.size)
         let c = ShotRenderer.compose(shot: try fixture(), style: style, sourceSize: phoneSource)
         let device = try #require(c.layers.last).bounds
-        // Fully inside side to side, on the right, 0.52 to 0.56 of the canvas wide, and rising off the bottom edge.
-        #expect(device.minX >= 0 && device.maxX <= canvas.maxX, "no side clip: \(device)")
-        #expect(device.midX > canvas.midX)
-        #expect(device.width >= canvas.width * 0.52 && device.width <= canvas.width * 0.56 + 0.5, "width \(device.width / canvas.width)")
-        #expect(device.maxY > canvas.maxY && device.maxY <= canvas.maxY + device.height * 0.06, "bleeds off the bottom")
+        // Fully inside side to side with its right edge on the safe margin, 0.70 to 0.74 of the canvas wide, and a
+        // deliberate bleed: 15% to 20% of its own height runs off the bottom edge, so the top sits near 0.40 to 0.45.
+        let margin = canvas.width * 0.06
+        #expect(device.minX >= 0 && abs(device.maxX - (canvas.maxX - margin)) < 0.5, "right edge on the safe margin: \(device)")
+        #expect(device.width >= canvas.width * 0.70 && device.width <= canvas.width * 0.74, "width \(device.width / canvas.width)")
+        let bleed = (device.maxY - canvas.maxY) / device.height
+        #expect(bleed >= 0.15 && bleed <= 0.20, "bleed \(bleed) of the device height")
+        #expect(device.minY >= canvas.height * 0.38 && device.minY <= canvas.height * 0.45, "top at \(device.minY / canvas.height)")
         // The caption keeps Stacked's headline size and sits left-aligned above the device.
+        #expect(c.headlineRect.minX == margin && c.headlineRect.width <= canvas.width * 0.42 + 0.5, "left-aligned in the 0.42 measure")
         style.composition = .stacked
         let stacked = ShotRenderer.compose(shot: try fixture(), style: style, sourceSize: phoneSource)
         #expect(abs(fontSize(c.headline) - fontSize(stacked.headline)) < 0.01, "Stacked's headline size")
@@ -1506,26 +1522,29 @@ struct BuilderTests {
         let stacked = ShotRenderer.compose(shot: shot, style: style, sourceSize: phoneSource)
         #expect(abs(fontSize(c.headline) - fontSize(stacked.headline) * 2.2) < 0.01, "2.2x headline")
         #expect(abs(fontSize(c.subtitle) - fontSize(stacked.subtitle) * 1.35) < 0.01, "1.35x subtitle")
-        // Accent bar, badge, headline, and subtitle sit as one block, a little above the canvas middle (0.45 of its height).
-        let bar = c.accentBar
-        #expect(abs(bar.width - style.size.width * 0.12) < 0.5 && abs(bar.height - fontSize(c.headline) * 0.12) < 0.5)
-        #expect(abs(bar.midX - style.size.width / 2) < 0.5, "centered like the text")
-        #expect(bar.maxY <= c.badgeRect.minY && c.badgeRect.maxY <= c.headlineRect.minY)
-        let block = bar.union(c.badgeRect).union(c.headlineRect).union(c.subtitleRect)
+        // Badge, headline, and subtitle sit as one block, a little above the canvas middle (0.45 of its height). No bar.
+        #expect(c.badgeRect.maxY <= c.headlineRect.minY)
+        let block = c.badgeRect.union(c.headlineRect).union(c.subtitleRect)
         #expect(c.badge != nil && abs(block.midY - style.size.height * 0.45) < 1)
-        #expect(stacked.accentBar == .zero)
         style.composition = .textOnly
         style.alignment = .leading
         let leading = ShotRenderer.compose(shot: shot, style: style, sourceSize: phoneSource)
-        #expect(leading.accentBar.minX == leading.textColumn.minX && leading.badgeRect.minX == leading.textColumn.minX, "aligned like the text")
+        #expect(leading.badgeRect.minX == leading.textColumn.minX, "aligned like the text")
         style.alignment = .center
-        // Rendering draws text and the accent bar on the plain background with no device.
+        // Rendering draws the text on the plain background with no device and nothing else: no pixel above the badge.
+        style.background = .solid(RGBColor(0, 0, 0))
         let bitmap = try ShotRenderer.render(shot: shot, style: style, maxDimension: 400)
         #expect(bitmap.pixelsWide > 0)
         let scale = CGFloat(bitmap.pixelsWide) / style.size.width
-        let pixel = try #require(bitmap.colorAt(x: Int(bar.midX * scale), y: Int(bar.midY * scale))?.usingColorSpace(.sRGB))
-        let accent = style.accent.nsColor.usingColorSpace(.sRGB)!
-        #expect(abs(pixel.redComponent - accent.redComponent) < 0.03 && abs(pixel.greenComponent - accent.greenComponent) < 0.03, "the bar is drawn in the accent color")
+        let aboveBlock = Int((block.minY - 4) * scale)
+        var brightest: CGFloat = 0
+        for y in 0..<aboveBlock {
+            for x in 0..<bitmap.pixelsWide {
+                let color = try #require(bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB))
+                brightest = max(brightest, color.redComponent + color.greenComponent + color.blueComponent)
+            }
+        }
+        #expect(aboveBlock > 20 && brightest < 0.01, "nothing is drawn above the caption block (brightest \(brightest))")
         // Screenshot only wins: the shot draws as before, with its device and no caption.
         style.layout = .imageOnly
         #expect(ShotRenderer.compose(shot: shot, style: style, sourceSize: phoneSource).layers.count == 1)
@@ -1549,7 +1568,7 @@ struct BuilderTests {
                 #expect(a.warnings.isEmpty && b.warnings.isEmpty, "\(label) \(a.warnings)")
                 #expect(group.headScale < 1,"\(label) the long headline steps the group down")
                 #expect(fontSize(a.headline) == fontSize(b.headline), "\(label) one size for the group")
-                for rect in [a.accentBar, a.headlineRect, a.subtitleRect] {
+                for rect in [a.headlineRect, a.subtitleRect] {
                     #expect(canvas.insetBy(dx: -0.5, dy: -0.5).contains(rect), "\(label) \(rect)")
                 }
             }
