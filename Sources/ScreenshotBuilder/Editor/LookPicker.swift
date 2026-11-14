@@ -7,27 +7,14 @@ struct LookPicker: View {
     let apply: (Look) -> Void
     @State private var thumbnails: [String: NSImage] = [:]
 
-    /// What the thumbnails depend on: the shot's text and image, and the style a look keeps.
-    private struct Key: Hashable {
-        var shot: UUID?
-        var headline: String
-        var subtitle: String
-        var eyebrow: String
-        var badge: String
-        var arrangement: Arrangement?
-        var appName: String
-        var preset: OutputPreset
-        var landscape: Bool
-        var frame: FrameStyle
-        var finish: String
-        var imageScale: Double
+    /// What the thumbnails depend on: the whole shot, and the style with every value a look writes blanked out (any look's
+    /// output differs from another's only in the values looks write), so only the shot and kept values trigger a render.
+    private struct Key: Equatable {
+        var shot: Shot?
+        var kept: SetStyle
     }
 
-    private var key: Key {
-        Key(shot: shot?.id, headline: shot?.headline ?? "", subtitle: shot?.subtitle ?? "", eyebrow: shot?.eyebrow ?? "",
-            badge: shot?.badge ?? "", arrangement: shot?.arrangement, appName: style.decor.appName, preset: style.preset,
-            landscape: style.landscape, frame: style.frameStyle, finish: style.finish, imageScale: style.imageScale)
-    }
+    private var key: Key { Key(shot: shot, kept: Look.all[0].styled(style)) }
 
     var body: some View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 84), spacing: 8)], spacing: 10) {
