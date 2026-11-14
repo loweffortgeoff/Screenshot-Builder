@@ -41,4 +41,29 @@ Six actions reach the closest match. Two parts of Orb cannot be made on `main`: 
 
 ## Results
 
-Pending.
+Both judges ran on 2026-11-14 through T3 `delegate_task` (Codex provider, reasoning high), with the same brief: read the rubric, open all 20 PNGs, write one observation per file, then the rubric output with a file named on each issue. A first run was stopped before it finished, because `export-zoom.png` and `export-zoom-ch3.png` had no Zoom card (the harness needs `SB_ARRANGE=Callout`). Both judges saw the fixed files.
+
+### Can a Codex judge read the PNGs?
+
+Yes. Both judges reported details that only the pixels show. Examples are the 94% size slider (`window-device.png`), the burgundy FREE badge on panel two (`set-varied-sunset.png`), and the "Recent Trips" heading clipped inside the Zoom card (`export-zoom-ch3.png`).
+
+### Check against the pick rules
+
+Claude opened each PNG and checked every observation and every issue.
+
+| Rule | Sol (`gpt-6.1-sol`) | Astra (`gpt-6-astra`) |
+|---|---|---|
+| 1. One true, specific observation per file | 20 of 20 true. Most name two details (for example "Heavy weight and centered alignment are selected"). Two are generic: "Five blue panels" (`window-set.png`) and "Five upright phones" (`set.png`). | 20 of 20 true. Mostly one detail per file. Two are generic: "Five upright black phones" (`set.png`) and "Ocean theme selected" (`window.png`). |
+| 2. Every top-5 issue names a file | 5 of 5 | 5 of 5 |
+| 3. No claim the image contradicts | None found | None found |
+
+Both judges pass. Their findings agree on four of five issues: portrait Side by side leaves the upper right empty, the Zoom connector and border are heavy, set-level and shot-level controls overlap, and the grain is visible. Astra adds one precise point: the Zoom crop takes a heading without its rows.
+
+### Pick
+
+**Sol (`gpt-6.1-sol`, reasoning high).** Both judges pass, and their vague-claim counts are about equal. Sol's observations carry slightly more detail per file. Under the tie rule, Sol wins. The scores (Sol 7.4, Astra 7.5) played no part.
+
+### Findings for chapter 4 (not part of the pick)
+
+- The Zoom crop can include a section heading without its rows ("Recent Trips", `export-zoom-ch3.png`). Both judges saw it. The crop should end at the bottom of a whole group, so this belongs to M6 (Zoom card).
+- Both judges named the film grain on large gradients. Grain intensity is not in the chapter 4 scope. It goes to the backlog unless the M9 review repeats it.
