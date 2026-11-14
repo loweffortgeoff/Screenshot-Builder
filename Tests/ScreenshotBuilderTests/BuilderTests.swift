@@ -806,4 +806,97 @@ struct BuilderTests {
         #expect(a.badgeRect.maxY < a.headlineRect.minY)
         #expect(a.subtitleRect.maxY <= (a.device?.rect.minY ?? .infinity))
     }
+
+    private static let padPresets: [OutputPreset] = [.pad13, .pad11, .pad129]
+
+    @Test func padStandardFillsSeventyPercent() throws {
+        var shot = try fixture()
+        shot.arrangement = .standard
+        for preset in [OutputPreset.pad13, .pad11] {
+            for layout in CaptionLayout.allCases {
+                var style = SetStyle()
+                style.preset = preset; style.layout = layout
+                let c = ShotRenderer.compose(shot: shot, style: style, sourceSize: CGSize(width: 1320, height: 2868))
+                let device = try #require(c.device)
+                #expect(device.rect.width >= style.size.width * 0.70, "\(preset) \(layout) \(device.rect.width / style.size.width)")
+                let canvas = CGRect(origin: .zero, size: style.size)
+                if layout.hasCaption && layout != .bleedBottom && layout != .bleedTop {
+                    #expect(canvas.contains(device.rect), "\(preset) \(layout) inside canvas")
+                }
+            }
+        }
+    }
+
+    @Test func padHeroAndTiltUseTheFillRule() throws {
+        var shot = try fixture()
+        for preset in [OutputPreset.pad13, .pad11] {
+            for layout in CaptionLayout.allCases {
+                var style = SetStyle()
+                style.preset = preset; style.layout = layout
+                let canvas = CGRect(origin: .zero, size: style.size)
+                for arrangement in [Arrangement.heroLeft, .heroRight] {
+                    shot.arrangement = arrangement
+                    let c = ShotRenderer.compose(shot: shot, style: style, sourceSize: CGSize(width: 1320, height: 2868))
+                    let front = try #require(c.layers.last)
+                    #expect(front.frame.width >= canvas.width * 0.70, "\(preset) \(layout) \(arrangement) \(front.frame.width / canvas.width)")
+                }
+                for arrangement in [Arrangement.tiltLeft, .tiltRight] {
+                    shot.arrangement = arrangement
+                    let c = ShotRenderer.compose(shot: shot, style: style, sourceSize: CGSize(width: 1320, height: 2868))
+                    let front = try #require(c.layers.last)
+                    if layout != .bleedBottom && layout != .bleedTop {
+                        #expect(canvas.insetBy(dx: -0.5, dy: -0.5).contains(front.bounds), "\(preset) \(layout) \(arrangement) tilt on canvas")
+                    }
+                }
+            }
+        }
+    }
+
+    @Test func padDuoIsGroundedAndInsideMargins() throws {
+        var shot = try fixture()
+        let source = CGSize(width: 1320, height: 2868)
+        for preset in Self.padPresets {
+            for landscape in [false, true] {
+                for layout in CaptionLayout.allCases {
+                    var style = SetStyle()
+                    style.preset = preset; style.landscape = landscape; style.layout = layout
+                    let canvas = CGRect(origin: .zero, size: style.size)
+                    let margin = ShotRenderer.CaptionMetrics(style: style).margin
+                    shot.arrangement = .standard
+                    let standard = try #require(ShotRenderer.compose(shot: shot, style: style, sourceSize: source).layers.last)
+                    shot.arrangement = .duo
+                    let duo = ShotRenderer.compose(shot: shot, style: style, sourceSize: source, companionSize: source)
+                    #expect(duo.layers.count == 2)
+                    let back = try #require(duo.layers.first), front = try #require(duo.layers.last)
+                    let tag = "\(preset) \(landscape) \(layout)"
+                    for layer in duo.layers {
+                        #expect(layer.bounds.minX >= margin - 0.5 && layer.bounds.maxX <= canvas.maxX - margin + 0.5, "\(tag) side margin")
+                    }
+                    if layout != .bleedBottom && layout != .bleedTop {
+                        #expect(abs(back.frame.width / standard.frame.width - 0.78) < 0.01, "\(tag) back scale")
+                        #expect(abs(front.frame.width / standard.frame.width - 0.86) < 0.01, "\(tag) front scale")
+                        let offset = (front.frame.midY - back.frame.midY) / standard.frame.height
+                        #expect(abs(offset - 0.06) < 0.01, "\(tag) vertical offset \(offset)")
+                        #expect(canvas.insetBy(dx: -0.5, dy: -0.5).contains(back.bounds.union(front.bounds)), "\(tag) on canvas")
+                    }
+                }
+            }
+        }
+    }
+
+    @Test func glowBoostStrengthensMeshAndDefaultsToOff() throws {
+        let mesh = try #require(Theme.all.first { $0.background.kind == .mesh }).background
+        func pixels(_ boost: CGFloat?) throws -> [UInt8] {
+            let cg = try #require(CGContext(data: nil, width: 120, height: 160, bitsPerComponent: 8, bytesPerRow: 0,
+                                            space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                            bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
+            let size = CGSize(width: 120, height: 160)
+            if let boost { ShotRenderer.drawBackground(mesh, in: cg, size: size, position: .single, glowBoost: boost) }
+            else { ShotRenderer.drawBackground(mesh, in: cg, size: size, position: .single) }
+            let data = try #require(cg.data)
+            return Array(UnsafeBufferPointer(start: data.assumingMemoryBound(to: UInt8.self), count: cg.bytesPerRow * 160))
+        }
+        #expect(try pixels(nil) == pixels(1))
+        #expect(try pixels(1.2) != pixels(1))
+    }
 }

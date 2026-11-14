@@ -190,11 +190,27 @@ enum ShotRenderer {
         let captionHeight = hasCaption ? (captionBand?.height ?? metrics.maxBand + badgeExtra) : 0
         let separation = hasCaption ? metrics.separation : 0
         let top = margin * 1.25
-        let imageArea = CGRect(x: margin, y: top + (style.layout.captionOnTop ? captionHeight + separation : 0),
+        let spec = DeviceSpec.for(style.preset)
+        let isPad = spec.family == .pad
+        var imageArea = CGRect(x: margin, y: top + (style.layout.captionOnTop ? captionHeight + separation : 0),
                                width: size.width - margin * 2,
                                height: size.height - top - margin - captionHeight - separation)
-        let available = imageArea.insetBy(dx: imageArea.width * (1 - style.imageScale) / 2,
-                                          dy: imageArea.height * (1 - style.imageScale) / 2)
+        var padFillY: CGFloat = 1
+        if isPad {
+            // An iPad is height-limited inside the image area, so it gets more height: a thin gap under a top caption
+            // and thin outer margins. The caption side keeps its clearance. Vertically, the default scale fills the
+            // area and smaller scales shrink it; horizontally, scale 1.0 lets a width-limited device reach the side margin.
+            let shortSide = min(size.width, size.height)
+            let topEdge = style.layout.captionOnTop ? top + captionHeight + shortSide * 0.008 : margin * 0.15
+            let bottomEdge = hasCaption && !style.layout.captionOnTop ? size.height - margin - captionHeight - separation
+                                                                       : size.height - margin * 0.2
+            imageArea = CGRect(x: margin, y: topEdge, width: size.width - margin * 2, height: bottomEdge - topEdge)
+            padFillY = min(1, CGFloat(style.imageScale) / 0.94)
+        }
+        let available = isPad
+            ? imageArea.insetBy(dx: imageArea.width * (1 - style.imageScale) / 2, dy: imageArea.height * (1 - padFillY) / 2)
+            : imageArea.insetBy(dx: imageArea.width * (1 - style.imageScale) / 2,
+                                dy: imageArea.height * (1 - style.imageScale) / 2)
         /// Fits content in the image area. Bleed layouts grow the box past one canvas edge
         /// and pin the content to the opposite edge, so the device runs off the canvas.
         func place(_ aspect: CGSize) -> CGRect {
@@ -210,7 +226,6 @@ enum ShotRenderer {
             let y = style.layout == .bleedBottom ? available.minY + inset : available.maxY - inset - height
             return CGRect(x: available.midX - width / 2, y: y, width: width, height: height)
         }
-        let spec = DeviceSpec.for(style.preset)
         let rotatedDevice = style.landscape && style.preset != .mac
         // Duo needs a second capture; without one (a one-shot set) the shot draws as Standard.
         let arrangement: Arrangement = shot.arrangement == .duo && companionSize == nil ? .standard : shot.arrangement
@@ -283,7 +298,14 @@ enum ShotRenderer {
         case .tiltLeft, .tiltRight:
             // The canvas y-axis points down, so a positive angle turns clockwise: the device's top leans right.
             let sign: CGFloat = arrangement == .tiltRight ? 1 : -1
-            layers = [layer(in: scaled(base, 0.97, dx: sign * base.width * 0.05), capture: sourceSize, rotation: sign * 8 * degrees)]
+            var tiltScale: CGFloat = 0.97
+            if isPad && style.layout != .bleedBottom && style.layout != .bleedTop {
+                // The fuller iPad fit leaves little room, so shrink until the rotated corners stay inside it.
+                let lean = 8 * degrees
+                tiltScale = min(tiltScale, available.height / (base.height * cos(lean) + base.width * sin(lean)),
+                                (size.width - margin * 1.6) / (base.width * cos(lean) + base.height * sin(lean)))
+            }
+            layers = [layer(in: scaled(base, tiltScale, dx: sign * base.width * 0.05), capture: sourceSize, rotation: sign * 8 * degrees)]
         case .heroLeft, .heroRight:
             // A large device pushed toward one side that runs off the edge away from the caption, not off the side,
             // so left-aligned app labels stay whole. Start from the plain fit, not a bleed placement.
@@ -302,8 +324,30 @@ enum ShotRenderer {
             // Lean the device's top toward the canvas center.
             layers = [layer(in: r, capture: sourceSize, rotation: (arrangement == .heroRight ? -4 : 4) * degrees)]
         case .duo:
-            let back = scaled(base, 0.7, dx: -base.width * 0.19, dy: -base.height * 0.04)
-            let front = scaled(base, 0.76, dx: base.width * 0.17, dy: base.height * 0.06)
+            // iPad: sizes are fractions of the plain fit, so a bleed layout does not push the pair past the side margins.
+            // The front centre sits 6% of that height below the back centre, so the pair reads grounded.
+            let standard = isPad ? Self.fit(objectAspect, in: available) : base
+            // On iPad the side-by-side spread shrinks until both rotated devices fit between the side margins.
+            var spread: CGFloat = 1
+            func padPair() -> (back: CGRect, front: CGRect) {
+                (scaled(standard, 0.78, dx: -standard.width * 0.17 * spread),
+                 scaled(standard, 0.86, dx: standard.width * 0.12 * spread, dy: standard.height * 0.06))
+            }
+            func padBounds(_ pair: (back: CGRect, front: CGRect)) -> CGRect {
+                Layer(device: nil, imageRect: pair.back, rotation: 7 * degrees, frame: pair.back).bounds
+                    .union(Layer(device: nil, imageRect: pair.front, rotation: -3 * degrees, frame: pair.front).bounds)
+            }
+            var padLift: CGFloat = 0
+            if isPad {
+                while spread > 0, padBounds(padPair()).width > size.width - margin * 2 { spread -= 0.05 }
+                spread = max(0, spread)
+                // The lower front device must not run past the image area's far edge.
+                padLift = min(0, available.maxY - padBounds(padPair()).maxY)
+            }
+            let back = isPad ? padPair().back.offsetBy(dx: 0, dy: padLift)
+                             : scaled(base, 0.7, dx: -base.width * 0.19, dy: -base.height * 0.04)
+            let front = isPad ? padPair().front.offsetBy(dx: 0, dy: padLift)
+                              : scaled(base, 0.76, dx: base.width * 0.17, dy: base.height * 0.06)
             layers = [layer(in: back, capture: companionSize, rotation: 7 * degrees, companion: true),
                       layer(in: front, capture: sourceSize, rotation: -3 * degrees)]
         case .callout:
@@ -426,7 +470,7 @@ enum ShotRenderer {
         // Keep tilted and Duo devices on the canvas horizontally (Hero places itself).
         if [.tiltLeft, .tiltRight, .duo].contains(arrangement),
            let bounds = layers.map(\.bounds).reduce(nil, { (acc: CGRect?, r) in acc.map { $0.union(r) } ?? r }) {
-            let edge = margin * 0.8
+            let edge = isPad && arrangement == .duo ? margin : margin * 0.8
             var dx: CGFloat = 0
             if bounds.width <= size.width - edge * 2 {
                 if bounds.minX < edge { dx = edge - bounds.minX } else if bounds.maxX > size.width - edge { dx = size.width - edge - bounds.maxX }
@@ -512,7 +556,9 @@ enum ShotRenderer {
         NSGraphicsContext.current = context
         cg.translateBy(x: 0, y: CGFloat(height))
         cg.scaleBy(x: CGFloat(width) / size.width, y: -CGFloat(height) / size.height)
-        drawBackground(style.background, in: cg, size: size, position: style.spanSet ? position : .single)
+        // Pinned rule (R3.4): iPad-family presets get 20% stronger glows in any orientation.
+        let glowBoost: CGFloat = DeviceSpec.for(style.preset).family == .pad ? 1.2 : 1
+        drawBackground(style.background, in: cg, size: size, position: style.spanSet ? position : .single, glowBoost: glowBoost)
         if style.grain && style.background.kind != .solid { drawGrain(in: cg, size: size) }
         let companionSize = companion?.cgImage.map { CGSize(width: $0.width, height: $0.height) }
         let composition = compose(shot: shot, style: style, sourceSize: CGSize(width: source.width, height: source.height),
@@ -705,7 +751,8 @@ enum ShotRenderer {
     }
 
     /// Fills the canvas. With a spanning position, the gradient field covers the whole set.
-    static func drawBackground(_ background: Background, in cg: CGContext, size: CGSize, position: SetPosition) {
+    static func drawBackground(_ background: Background, in cg: CGContext, size: CGSize, position: SetPosition,
+                               glowBoost: CGFloat = 1) {
         let canvas = CGRect(origin: .zero, size: size)
         let count = CGFloat(max(1, position.count))
         let field = CGRect(x: -CGFloat(position.index) * size.width, y: 0, width: size.width * count, height: size.height)
@@ -757,7 +804,7 @@ enum ShotRenderer {
                 let x = field.minX + CGFloat(slot) * size.width
                 for (fx, fy, radius, index) in patterns[count > 1 ? slot % patterns.count : 0] {
                     let tone = colors[min(index, colors.count - 1)]
-                    glow(tone.copy(alpha: index == 0 ? 0.7 : 0.9) ?? tone,
+                    glow(tone.copy(alpha: min(1, (index == 0 ? 0.7 : 0.9) * glowBoost)) ?? tone,
                          at: CGPoint(x: x + size.width * fx, y: size.height * fy), radius: reach * radius)
                 }
             }
