@@ -290,27 +290,6 @@ enum ShotRenderer {
             drawCapture()
             cg.restoreGState()
         }
-        if style.layout == .bleedBottom || style.layout == .bleedTop {
-            // Fade the device into the background where it runs off the canvas, so the cut reads as intended.
-            let depth = size.height * 0.07
-            let band = style.layout == .bleedBottom ? CGRect(x: 0, y: size.height - depth, width: size.width, height: depth)
-                                                    : CGRect(x: 0, y: 0, width: size.width, height: depth)
-            cg.saveGState()
-            cg.clip(to: band)
-            cg.beginTransparencyLayer(auxiliaryInfo: nil)
-            drawBackground(style.background, in: cg, size: size, position: style.spanSet ? position : .single)
-            if style.grain && style.background.kind != .solid { drawGrain(in: cg, size: size) }
-            cg.setBlendMode(.destinationIn)
-            if let space = CGColorSpace(name: CGColorSpace.sRGB),
-               let mask = CGGradient(colorsSpace: space, colors: [CGColor(gray: 0, alpha: 0), CGColor(gray: 0, alpha: 1)] as CFArray,
-                                     locations: [0, 1]) {
-                let inner = style.layout == .bleedBottom ? band.minY : band.maxY
-                let outer = style.layout == .bleedBottom ? band.maxY : band.minY
-                cg.drawLinearGradient(mask, start: CGPoint(x: 0, y: inner), end: CGPoint(x: 0, y: outer), options: [])
-            }
-            cg.endTransparencyLayer()
-            cg.restoreGState()
-        }
         // AppKit text drawing needs the flipped context flag as well as the transform.
         NSGraphicsContext.current = NSGraphicsContext(cgContext: cg, flipped: true)
         if style.layout.hasCaption {
