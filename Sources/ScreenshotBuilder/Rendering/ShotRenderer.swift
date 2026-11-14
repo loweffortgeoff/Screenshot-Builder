@@ -17,6 +17,8 @@ enum ShotRenderer {
         var headline: NSAttributedString
         var subtitle: NSAttributedString
         var warnings: [String]
+        /// Advice that does not block export (soft source, capture shaped for another device).
+        var advisories: [String] = []
         /// Present when the style draws a device frame.
         var device: DeviceFrame?
         /// Display corner radius for the capture, in canvas points.
@@ -185,7 +187,15 @@ enum ShotRenderer {
                 NSAttributedString(string: String(word), attributes: text.attributes(at: 0, effectiveRange: nil)).size().width > textWidth
             }
         }) { warnings.append("A caption word is too wide. Add a space or use a shorter word.") }
-        if fit > 1.001 { warnings.append("Source image is smaller than its export area. It may look soft.") }
+        var advisories: [String] = []
+        if fit > 1.001 { advisories.append("Source image is smaller than its export area. It may look soft.") }
+        if let device, device.spec.family != .laptop {
+            let screen = device.contentRect
+            let mismatch = abs(sourceSize.width / sourceSize.height - screen.width / screen.height) / (screen.width / screen.height)
+            if mismatch > 0.03 {
+                advisories.append("This capture is shaped for a different device, so it shows black bars in the \(device.spec.name) frame. Use a matching capture, or the Rounded frame.")
+            }
+        }
         func textRect(width: CGFloat, y: CGFloat, height: CGFloat) -> CGRect {
             let x = style.alignment == .center ? (size.width - width) / 2 : (size.width - textWidth) / 2
             return CGRect(x: x, y: y, width: width, height: height)
@@ -195,14 +205,21 @@ enum ShotRenderer {
                            headlineRect: textRect(width: caption.headWidth, y: textY, height: caption.head),
                            subtitleRect: textRect(width: caption.subWidth, y: textY + caption.head + gap, height: caption.sub),
                            headline: headline, subtitle: subtitle, warnings: warnings,
-                           device: device, cornerRadius: cornerRadius, windowed: windowed)
+                           advisories: advisories, device: device, cornerRadius: cornerRadius, windowed: windowed)
     }
 
     /// Pass the set's band so validation checks exactly what render draws.
+    /// Blocking issues stop export; advisories only inform.
+    static func issues(shot: Shot, style: SetStyle, captionBand: CaptionBand? = nil) -> (blocking: [String], advisory: [String]) {
+        guard let image = shot.cgImage else { return (["Source image cannot be read."], []) }
+        let c = compose(shot: shot, style: style, sourceSize: CGSize(width: image.width, height: image.height), captionBand: captionBand)
+        return (c.warnings, c.advisories)
+    }
+
+    /// Every issue, blocking first, for display.
     static func warnings(shot: Shot, style: SetStyle, captionBand: CaptionBand? = nil) -> [String] {
-        guard let image = shot.cgImage else { return ["Source image cannot be read."] }
-        return compose(shot: shot, style: style, sourceSize: CGSize(width: image.width, height: image.height),
-                       captionBand: captionBand).warnings
+        let found = issues(shot: shot, style: style, captionBand: captionBand)
+        return found.blocking + found.advisory
     }
 
     static func render(shot: Shot, style: SetStyle, maxDimension: CGFloat? = nil,

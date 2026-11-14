@@ -37,8 +37,14 @@ struct CaptionInspector: View {
                 Label("Captions are saved but hidden in this layout.", systemImage: "eye.slash")
                     .font(.caption).foregroundStyle(.secondary)
             }
-            ForEach(ShotRenderer.warnings(shot: shot, style: style, captionBand: captionBand), id: \.self) { warning in
-                Label(warning, systemImage: "exclamationmark.triangle.fill")
+            let found = ShotRenderer.issues(shot: shot, style: style, captionBand: captionBand)
+            ForEach(found.blocking, id: \.self) { warning in
+                Label(warning, systemImage: "exclamationmark.octagon.fill")
+                    .font(.callout).foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            ForEach(found.advisory, id: \.self) { note in
+                Label(note, systemImage: "exclamationmark.triangle.fill")
                     .font(.callout).foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
             }

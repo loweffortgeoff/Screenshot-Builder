@@ -4,6 +4,8 @@ import SwiftUI
 struct Filmstrip: View {
     let shots: [Shot]
     let thumbnails: [UUID: NSImage]
+    /// Shots whose capture does not fit the device frame.
+    var mismatched: Set<UUID> = []
     let canvasAspect: CGFloat
     @Binding var selection: UUID?
     let canImport: Bool
@@ -32,6 +34,14 @@ struct Filmstrip: View {
                                 .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous)
                                     .strokeBorder(selected ? Color.accentColor : Color.primary.opacity(0.12), lineWidth: selected ? 2.5 : 1))
                                 .shadow(color: .black.opacity(selected ? 0.25 : 0.12), radius: selected ? 5 : 2, y: 1)
+                                .overlay(alignment: .topTrailing) {
+                                    if mismatched.contains(shot.id) {
+                                        Image(systemName: "exclamationmark.triangle.fill")
+                                            .font(.caption).foregroundStyle(.white, .orange)
+                                            .padding(3)
+                                            .help("This capture is shaped for a different device.")
+                                    }
+                                }
                                 Text("\(index + 1)").font(.caption2.monospacedDigit())
                                     .foregroundStyle(selected ? .primary : .secondary)
                             }

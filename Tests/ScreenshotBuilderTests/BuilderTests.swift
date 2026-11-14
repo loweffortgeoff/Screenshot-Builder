@@ -445,4 +445,19 @@ struct BuilderTests {
         }
         #expect(failures.isEmpty, "\(failures)")
     }
+
+    @Test func mismatchedCaptureIsAdvisoryNotBlocking() throws {
+        var style = SetStyle()
+        style.preset = .pad13
+        let shot = try fixture() // iPhone-shaped 1:2 capture
+        let iPhoneShaped = ShotRenderer.issues(shot: shot, style: style)
+        #expect(iPhoneShaped.advisory.contains { $0.contains("different device") })
+        #expect(!iPhoneShaped.blocking.contains { $0.contains("different device") })
+        style.frameStyle = .rounded
+        #expect(!ShotRenderer.issues(shot: shot, style: style).advisory.contains { $0.contains("different device") })
+        // A native iPhone capture in the iPhone frame raises nothing.
+        style = SetStyle()
+        let native = ShotRenderer.compose(shot: shot, style: style, sourceSize: CGSize(width: 1320, height: 2868))
+        #expect(!native.advisories.contains { $0.contains("different device") })
+    }
 }

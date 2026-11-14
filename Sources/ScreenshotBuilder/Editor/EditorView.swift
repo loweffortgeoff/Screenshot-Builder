@@ -11,6 +11,7 @@ struct EditorView: View {
     @State private var exportedFolder: URL?
     @State private var exporting = false
     @State private var thumbnails: [UUID: NSImage] = [:]
+    @State private var mismatched: Set<UUID> = []
     // The filmstrip is the main navigator; the list sidebar stays one click away for reordering by drag.
     @State private var columns: NavigationSplitViewVisibility = .detailOnly
     @State private var tab: InspectorTab = .style
@@ -59,7 +60,7 @@ struct EditorView: View {
                                 importImages: { replacing = nil; importing = true })
                     if !document.shots.isEmpty {
                         Divider()
-                        Filmstrip(shots: document.shots, thumbnails: thumbnails, canvasAspect: canvasAspect,
+                        Filmstrip(shots: document.shots, thumbnails: thumbnails, mismatched: mismatched, canvasAspect: canvasAspect,
                                   selection: $selection, canImport: document.shots.count < 10,
                                   importImages: { replacing = nil; importing = true },
                                   move: move, replace: { replacing = $0; importing = true }, remove: { removal = $0 })
@@ -170,6 +171,7 @@ struct EditorView: View {
         let shots = document.shots, style = document.style
         let band = ShotRenderer.captionBand(shots: shots, style: style)
         var rendered: [UUID: NSImage] = [:]
+        var misfits: Set<UUID> = []
         for (index, shot) in shots.enumerated() {
             // Yield between shots so typing stays responsive; a newer edit cancels this pass.
             await Task.yield()
@@ -179,8 +181,12 @@ struct EditorView: View {
             let image = NSImage(size: bitmap.size)
             image.addRepresentation(bitmap)
             rendered[shot.id] = image
+            if ShotRenderer.issues(shot: shot, style: style, captionBand: band).advisory.contains(where: { $0.contains("different device") }) {
+                misfits.insert(shot.id)
+            }
         }
         thumbnails = rendered
+        mismatched = misfits
     }
 
     private func ensureSelection() {
