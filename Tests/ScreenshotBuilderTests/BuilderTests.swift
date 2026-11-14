@@ -298,4 +298,13 @@ struct BuilderTests {
         }
         #expect(CaptionFont.rounded.font(size: 40, weight: .heavy).fontName.contains("Rounded"))
     }
+
+    @Test func highlightTogglesWordsAndKeepsPunctuation() {
+        let headline = "Your list, sorted by aisle"
+        #expect(Highlight.words(in: headline).map(\.text) == ["Your", "list", "sorted", "by", "aisle"])
+        let on = Highlight.toggle(1, in: headline)
+        #expect(on == "Your *list*, sorted by aisle")
+        #expect(Highlight.words(in: on)[1].highlighted)
+        #expect(Highlight.toggle(1, in: on) == headline)
+    }
 }

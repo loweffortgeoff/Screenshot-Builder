@@ -11,12 +11,14 @@ struct EditorView: View {
     @State private var exportedFolder: URL?
     @State private var exporting = false
     @State private var thumbnails: [UUID: NSImage] = [:]
+    // The filmstrip is the main navigator; the list sidebar stays one click away for reordering by drag.
+    @State private var columns: NavigationSplitViewVisibility = .detailOnly
 
     private var selectedIndex: Int? { document.shots.firstIndex(where: { $0.id == selection }) }
     private var canvasAspect: CGFloat { document.style.size.width / document.style.size.height }
 
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $columns) {
             List(selection: $selection) {
                 ForEach(Array(document.shots.enumerated()), id: \.element.id) { index, shot in
                     ShotRow(name: shot.name, headline: shot.headline, thumbnail: thumbnails[shot.id],
@@ -58,7 +60,8 @@ struct EditorView: View {
                         Divider()
                         Filmstrip(shots: document.shots, thumbnails: thumbnails, canvasAspect: canvasAspect,
                                   selection: $selection, canImport: document.shots.count < 10,
-                                  importImages: { replacing = nil; importing = true })
+                                  importImages: { replacing = nil; importing = true },
+                                  move: move, replace: { replacing = $0; importing = true }, remove: { removal = $0 })
                     }
                 }
                 .frame(minWidth: 360)
@@ -89,10 +92,12 @@ struct EditorView: View {
                 .help("App Store screenshot size: \(document.style.dimensionLabel) pixels")
                 .frame(width: 180)
                 if document.style.preset != .mac {
-                    Toggle(isOn: $document.style.landscape) {
-                        Label("Landscape", systemImage: document.style.landscape ? "rectangle" : "rectangle.portrait")
+                    Picker("Orientation", selection: $document.style.landscape) {
+                        Label("Portrait", systemImage: "rectangle.portrait").tag(false)
+                        Label("Landscape", systemImage: "rectangle").tag(true)
                     }
-                    .help(document.style.landscape ? "Landscape output. Click for portrait." : "Portrait output. Click for landscape.")
+                    .pickerStyle(.segmented)
+                    .help("Portrait or landscape output")
                 }
             }
             ToolbarItem(placement: .primaryAction) {

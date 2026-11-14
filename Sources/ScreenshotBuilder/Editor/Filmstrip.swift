@@ -8,6 +8,9 @@ struct Filmstrip: View {
     @Binding var selection: UUID?
     let canImport: Bool
     let importImages: () -> Void
+    let move: (UUID, Int) -> Void
+    let replace: (UUID) -> Void
+    let remove: (UUID) -> Void
 
     var body: some View {
         ScrollViewReader { scroller in
@@ -35,6 +38,13 @@ struct Filmstrip: View {
                         }
                         .buttonStyle(.plain)
                         .id(shot.id)
+                        .contextMenu {
+                            Button("Move Earlier") { move(shot.id, -1) }.disabled(index == 0)
+                            Button("Move Later") { move(shot.id, 1) }.disabled(index == shots.count - 1)
+                            Divider()
+                            Button("Replace Image…") { replace(shot.id) }
+                            Button("Remove Screenshot…", role: .destructive) { remove(shot.id) }
+                        }
                         .accessibilityLabel("Shot \(index + 1). \(shot.headline.replacingOccurrences(of: "*", with: ""))")
                         .accessibilityAddTraits(selected ? .isSelected : [])
                     }

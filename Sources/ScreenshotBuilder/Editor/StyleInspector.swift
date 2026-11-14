@@ -2,6 +2,9 @@ import SwiftUI
 
 struct StyleInspector: View {
     @Binding var style: SetStyle
+    @State private var showBackground = false
+    @State private var showText = true
+    @State private var showDevice = true
 
     var body: some View {
         Section("Layout") {
@@ -16,12 +19,14 @@ struct StyleInspector: View {
             }
             .padding(.vertical, 4)
         } header: {
-            Text("Theme")
-        } footer: {
-            Text(style.theme == nil ? "Custom colors. Pick a theme to reset." : "Styling applies to every screenshot.")
+            HStack {
+                Text("Theme")
+                Spacer()
+                if style.theme == nil { Text("Custom").foregroundStyle(.secondary) }
+            }
         }
 
-        Section("Background") {
+        Section("Background", isExpanded: $showBackground) {
             Picker("Fill", selection: kind) {
                 ForEach(BackgroundKind.allCases) { Text($0.rawValue).tag($0) }
             }
@@ -53,7 +58,7 @@ struct StyleInspector: View {
             }
         }
 
-        Section {
+        Section(isExpanded: $showText) {
             Picker("Font", selection: $style.font) {
                 ForEach(CaptionFont.allCases) { font in
                     Text(font.rawValue).font(Font(font.font(size: 13, weight: .semibold))).tag(font)
@@ -79,12 +84,10 @@ struct StyleInspector: View {
             ColorPicker("Accent color", selection: color(\.accent), supportsOpacity: false)
         } header: {
             Text("Text")
-        } footer: {
-            Text(verbatim: "Wrap words in *asterisks* to color them with the accent.")
         }
         .disabled(style.layout == .imageOnly)
 
-        Section {
+        Section(isExpanded: $showDevice) {
             Picker("Frame", selection: $style.frameStyle) {
                 ForEach(FrameStyle.allCases) { Text($0.rawValue).tag($0) }
             }
@@ -117,13 +120,13 @@ struct StyleInspector: View {
                 Slider(value: $style.imageScale, in: 0.5...1, step: 0.01).frame(maxWidth: 150)
             }
             Toggle("Shadow", isOn: $style.shadow)
-        } header: {
-            Text("Device")
-        } footer: {
             if style.frameStyle == .device {
                 let spec = DeviceSpec.for(style.preset)
                 Text("\(spec.name), \(DeviceFinish.named(style.finish, for: spec.family).name). Drawn from Apple's measured bezel.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
+        } header: {
+            Text("Device")
         }
     }
 
