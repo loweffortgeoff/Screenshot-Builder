@@ -295,7 +295,8 @@ struct SetStyle: Codable, Equatable {
     var shiftsHue: Bool { backdrop.hueShift && !spanSet }
 
     /// The background shot `index` of `count` draws. With hue shift, each stop turns by (index − middle) × 10°, at most
-    /// ±30°, stepping back 5° at a time until the text and accent still pass 3:1 on every stop. Stored colors never change.
+    /// ±30°, stepping back 5° at a time until the text and accent still pass 3:1 on every stop (or read no worse than on
+    /// the stored stop, for custom colors already under 3:1). Stored colors never change.
     func background(at index: Int, of count: Int) -> Background {
         guard shiftsHue, count > 1 else { return background }
         let wanted = max(-30, min(30, (Double(index) - Double(count - 1) / 2) * 10))
@@ -303,8 +304,9 @@ struct SetStyle: Codable, Equatable {
         while true {
             var shifted = background
             shifted.colors = background.colors.map { $0.rotatingHue(by: degrees) }
-            let readable = shifted.colors.allSatisfy { stop in
-                [foreground, accent].allSatisfy { RGBColor.contrastRatio($0, stop) >= 3 }
+            // Each shifted stop keeps 3:1, or, where the stored stop is already under it, gets no worse.
+            let readable = zip(background.colors, shifted.colors).allSatisfy { stored, stop in
+                [foreground, accent].allSatisfy { RGBColor.contrastRatio($0, stop) >= min(3, RGBColor.contrastRatio($0, stored)) - 1e-9 }
             }
             if readable || degrees == 0 { return readable ? shifted : background }
             degrees -= degrees > 0 ? min(5, degrees) : max(-5, degrees)

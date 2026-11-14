@@ -290,6 +290,22 @@ struct ChapterFourTests {
         }
     }
 
+    @Test func hueShiftStillWorksForCustomColorsUnder3To1() throws {
+        var style = SetStyle()
+        style.background = Background(kind: .linear, colors: [RGBColor(hex: 0x3060C0), RGBColor(hex: 0x6030A0)])
+        style.foreground = RGBColor(1, 1, 1)
+        style.accent = RGBColor(hex: 0x4070D0)   // under 3:1 on the stored stops
+        style.backdrop.hueShift = true
+        #expect(style.background(at: 0, of: 5) != style.background, "the toggle changes the shot")
+        for index in 0..<5 {
+            for (stored, stop) in zip(style.background.colors, style.background(at: index, of: 5).colors) {
+                for text in [style.foreground, style.accent] {
+                    #expect(RGBColor.contrastRatio(text, stop) >= min(3, RGBColor.contrastRatio(text, stored)) - 1e-9)
+                }
+            }
+        }
+    }
+
     @Test func spanSetDisablesHueShift() throws {
         var style = SetStyle()
         style.apply(try #require(Theme.all.first { $0.name == "Sunset" }))
