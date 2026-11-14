@@ -32,12 +32,25 @@ struct PreviewPane: View {
                 .font(.caption).foregroundStyle(.secondary)
                 .textSelection(.enabled)
             } else {
-                ContentUnavailableView {
-                    Label("Build your App Store set", systemImage: "rectangle.stack.badge.plus")
-                } description: {
-                    Text("Drop up to 10 PNG or JPEG screenshots here. Pick a theme, frame them in a real device, and write captions that sell.")
-                } actions: {
-                    Button("Import Screenshots", action: importImages).buttonStyle(.borderedProminent)
+                // Empty set: the current style on a blank device, so the first view already shows the look.
+                ZStack {
+                    if let preview {
+                        Image(nsImage: preview).resizable().interpolation(.high).scaledToFit()
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .shadow(color: .black.opacity(0.28), radius: 18, y: 8)
+                            .opacity(0.55)
+                            .accessibilityHidden(true)
+                    }
+                    VStack(spacing: 12) {
+                        Image(systemName: "square.and.arrow.down.on.square").font(.system(size: 34, weight: .medium))
+                        Text("Build your App Store set").font(.title2.weight(.semibold))
+                        Text("Drop up to 10 PNG or JPEG screenshots here. Pick a theme, frame them in a real device, and write captions that sell.")
+                            .multilineTextAlignment(.center).foregroundStyle(.secondary).frame(maxWidth: 340)
+                        Button("Import Screenshots", action: importImages)
+                            .buttonStyle(.borderedProminent).controlSize(.large)
+                    }
+                    .padding(24)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
             }
         }
@@ -45,9 +58,10 @@ struct PreviewPane: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .underPageBackgroundColor))
         .task(id: PreviewKey(shot: shot, style: style, position: position, captionBand: captionBand)) {
-            guard let shot else { preview = nil; return }
             do {
-                let bitmap = try ShotRenderer.render(shot: shot, style: style, maxDimension: 1500, position: position, captionBand: captionBand)
+                let bitmap = try shot.map {
+                    try ShotRenderer.render(shot: $0, style: style, maxDimension: 1500, position: position, captionBand: captionBand)
+                } ?? ShotRenderer.render(shot: Shot.placeholder(for: style), style: style, maxDimension: 900)
                 let image = NSImage(size: bitmap.size)
                 image.addRepresentation(bitmap)
                 preview = image

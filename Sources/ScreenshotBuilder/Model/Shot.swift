@@ -45,6 +45,31 @@ struct Shot: Codable, Equatable, Identifiable {
     }
 }
 
+extension Shot {
+    /// A blank screen at the device's native size, for the empty-set preview.
+    static func placeholder(for style: SetStyle) -> Shot {
+        var screen = DeviceSpec.for(style.preset).screen
+        if style.landscape && style.preset != .mac { screen = CGSize(width: screen.height, height: screen.width) }
+        let width = Int(screen.width / 4), height = Int(screen.height / 4)
+        var data = Data()
+        if let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                                   space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) {
+            context.setFillColor(CGColor(red: 0.07, green: 0.07, blue: 0.08, alpha: 1))
+            context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+            if let image = context.makeImage() {
+                let output = NSMutableData()
+                if let destination = CGImageDestinationCreateWithData(output, "public.png" as CFString, 1, nil) {
+                    CGImageDestinationAddImage(destination, image, nil)
+                    CGImageDestinationFinalize(destination)
+                }
+                data = output as Data
+            }
+        }
+        return Shot(name: "Placeholder", imageData: data, headline: "Your headline here", subtitle: "Drop screenshots to begin",
+                    accents: ["headline"])
+    }
+}
+
 enum BuilderError: LocalizedError {
     case message(String)
     var errorDescription: String? {
