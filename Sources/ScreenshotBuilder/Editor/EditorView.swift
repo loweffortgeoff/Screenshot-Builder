@@ -24,7 +24,9 @@ struct EditorView: View {
     var body: some View {
         HSplitView {
             previewColumn
-            inspectorColumn
+            // Set view is for reviewing and ordering the whole set: it takes the full width, and the
+            // per-shot inspector returns with the canvas.
+            if mode == .canvas || document.shots.isEmpty { inspectorColumn }
         }
         .toolbar {
             ToolbarItemGroup {
