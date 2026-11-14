@@ -257,6 +257,13 @@ enum ShotRenderer {
         return 0.72
     }
 
+    private static func widestWord(in text: NSAttributedString) -> CGFloat {
+        guard text.length > 0 else { return 0 }
+        return text.string.split(whereSeparator: { $0.isWhitespace }).map { word in
+            NSAttributedString(string: String(word), attributes: text.attributes(at: 0, effectiveRange: nil)).size().width
+        }.max() ?? 0
+    }
+
     private static func hasWord(widerThan width: CGFloat, in text: NSAttributedString) -> Bool {
         text.length > 0 && text.string.split(whereSeparator: { $0.isWhitespace }).contains { word in
             NSAttributedString(string: String(word), attributes: text.attributes(at: 0, effectiveRange: nil)).size().width > width
@@ -301,14 +308,49 @@ enum ShotRenderer {
         return (head, sub, headWidth, subWidth, head + gap + sub)
     }
 
+    /// Where an Overlay band may sit, taken from the placed front device: its (rotated) bounds and its unrotated width.
+    private struct OverlayAnchor {
+        var bounds: CGRect
+        var width: CGFloat
+    }
+
+    /// The Overlay band's width: the usual text measure plus padding, held to the front device's width and to the part
+    /// of the device that is on the canvas. A narrow device (a small Size, a Hero edge) gets a narrower band and a
+    /// shorter text measure to match, never a band wider than the phone under it.
+    private static func overlayPanelWidth(measure: CGFloat, pad: CGFloat, anchor: OverlayAnchor, canvas: CGSize) -> CGFloat {
+        let visible = anchor.bounds.intersection(CGRect(origin: .zero, size: canvas))
+        return min(measure + pad * 2, anchor.width, visible.isNull ? .infinity : visible.width)
+    }
+
+    /// Overlay is placed in two passes. Where the devices sit does not depend on the caption in this composition, so the
+    /// first pass finds the front device and the second places the band, and the text measure, against it.
     static func compose(shot: Shot, style: SetStyle, sourceSize: CGSize, captionBand: CaptionBand? = nil,
                         companionSize: CGSize? = nil) -> Composition {
+        compose(shot: shot, style: style, sourceSize: sourceSize, captionBand: captionBand, companionSize: companionSize, anchor: nil)
+    }
+
+    private static func compose(shot: Shot, style: SetStyle, sourceSize: CGSize, captionBand: CaptionBand?,
+                                companionSize: CGSize?, anchor: OverlayAnchor?) -> Composition {
         let size = style.size
+        let givenCompanionSize = companionSize
         let composition = style.effectiveComposition(for: shot)
-        let group = captionBand?.group(for: composition)
-        let metrics = CaptionMetrics(style: style, composition: composition,
+        var group = captionBand?.group(for: composition)
+        var metrics = CaptionMetrics(style: style, composition: composition,
                                      headScale: group?.headScale ?? Self.headScale(for: [shot], style: style, composition: composition))
         let margin = metrics.margin
+        if let anchor, composition == .overlay {
+            let pad = margin * 0.6
+            let width = overlayPanelWidth(measure: metrics.textWidth, pad: pad, anchor: anchor, canvas: size)
+            if width < metrics.textWidth + pad * 2 {
+                // A narrowed band wraps this shot's text on its own, so it cannot share the set band's height or line count.
+                // It never gets narrower than the widest word, which would split mid-word and block export; a device
+                // that small gets a band a little wider than itself.
+                let words = [headlineText(shot.headline, accents: shot.accents, style: style, size: metrics.headSize),
+                             subtitleText(shot.subtitle, style: style, size: metrics.subSize)].map { widestWord(in: $0) }.max() ?? 0
+                metrics.textWidth = max(width - pad * 2, min(metrics.textWidth, ceil(words) + 1))
+                group = nil
+            }
+        }
         let hasCaption = style.layout.hasCaption
         // Only Stacked and Big number take layout room for the caption. Side by side, Overlay, and Text only place it themselves.
         let stacksCaption = hasCaption && (composition == .stacked || composition == .bigNumber)
@@ -340,11 +382,11 @@ enum ShotRenderer {
         var padFillY: CGFloat = 1
         if isPad {
             // An iPad is height-limited inside the image area, so it gets more height: a thin gap under a top caption
-            // and thin outer margins. The caption side keeps its clearance. Vertically, the default scale fills the
+            // and thin outer margins. The caption side keeps its clearance, a thin gap on top and bottom alike. Vertically, the default scale fills the
             // area and smaller scales shrink it; horizontally, scale 1.0 lets a width-limited device reach the side margin.
             let shortSide = min(size.width, size.height)
             let topEdge = style.layout.captionOnTop ? top + captionHeight + shortSide * 0.008 : margin * 0.15
-            let bottomEdge = hasCaption && !style.layout.captionOnTop ? size.height - margin - captionHeight - separation
+            let bottomEdge = hasCaption && !style.layout.captionOnTop ? size.height - margin - captionHeight - separation - shortSide * 0.008
                                                                        : size.height - margin * 0.2
             imageArea = CGRect(x: margin, y: topEdge, width: size.width - margin * 2, height: bottomEdge - topEdge)
             padFillY = min(1, CGFloat(style.imageScale) / 0.94)
@@ -433,7 +475,9 @@ enum ShotRenderer {
                     let fills = switch fit {
                     case .window: false
                     case .fill: true
-                    case .auto: mismatch(frame.screenRect) <= 0.01 || (!companion && displayCapture)
+                    // Auto keeps its earlier order: the native screen shape fills; a capture that fits the area below the
+                    // notch within 3% (a 16:10 display) stays uncropped there; only a wider display capture fills and crops.
+                    case .auto: mismatch(frame.screenRect) <= 0.01 || (!companion && displayCapture && mismatch(content) > 0.03)
                     }
                     if fills {
                         // Cover the screen opening and crop the overflow; the crop position picks what stays visible.
@@ -474,15 +518,24 @@ enum ShotRenderer {
         func scaled(_ r: CGRect, _ k: CGFloat, dx: CGFloat = 0, dy: CGFloat = 0) -> CGRect {
             CGRect(x: r.midX - r.width * k / 2 + dx, y: r.midY - r.height * k / 2 + dy, width: r.width * k, height: r.height * k)
         }
-        // Overlay: a frosted band over the device's lower third, wide enough for the text plus its padding.
+        // Overlay: a frosted band over the front device's lower edge, as wide as the text plus its padding, never wider than
+        // the device. The first pass has no placed device yet and uses the Standard fit; the second uses the real one.
         let panelPad = margin * 0.6
         var panel: CGRect?
         if composition == .overlay && hasCaption {
             let height = captionHeight + panelPad * 2
-            let bottom = min(base.maxY - base.height * 0.04, size.height - margin * 0.8)
-            panel = CGRect(x: (size.width - textWidth - panelPad * 2) / 2, y: bottom - height,
-                           width: textWidth + panelPad * 2, height: height)
+            let target = anchor ?? OverlayAnchor(bounds: base, width: base.width)
+            let bottom = min(target.bounds.maxY - target.bounds.height * 0.04, size.height - margin * 0.8)
+            let width = textWidth + panelPad * 2
+            // Centered on the canvas where the device allows it, else slid along the device (a Hero device sits to one side).
+            let reach = target.bounds.intersection(CGRect(origin: .zero, size: size))
+            var x = (size.width - width) / 2
+            if !reach.isNull { x = width <= reach.width ? min(max(x, reach.minX), reach.maxX - width) : reach.midX - width / 2 }
+            panel = CGRect(x: x, y: bottom - height, width: width, height: height)
         }
+        /// Where the caption column sits side to side: the canvas center, except in Overlay, where it follows its band.
+        let columnX = panel.map { $0.minX + panelPad } ?? (composition == .sideBySide ? sideColumnX : (size.width - textWidth) / 2)
+        func centered(_ width: CGFloat) -> CGFloat { panel.map { $0.midX - width / 2 } ?? (size.width - width) / 2 }
         // The band is shared across the set and captions start at its top, so headlines share a line.
         // Stacked and Big number sit at the top or bottom edge. Side by side and Text only center their band on the
         // canvas, and Overlay sits inside its panel, each starting its text at the band's top.
@@ -497,8 +550,7 @@ enum ShotRenderer {
         let textY = badgeY + badgeExtra
         let headY = textY + statExtra
         func textRect(width: CGFloat, y: CGFloat, height: CGFloat) -> CGRect {
-            let x = composition == .sideBySide ? sideColumnX
-                : style.alignment == .center ? (size.width - width) / 2 : (size.width - textWidth) / 2
+            let x = composition == .sideBySide ? sideColumnX : style.alignment == .center ? centered(width) : columnX
             return CGRect(x: x, y: y, width: width, height: height)
         }
         let gap = caption.head > 0 && caption.sub > 0 ? metrics.gap : 0
@@ -510,8 +562,7 @@ enum ShotRenderer {
             let text = Self.badgeText(badgeText.uppercased(), style: style, size: metrics.subSize * 0.62)
             let pillHeight = metrics.subSize * 1.5
             let pillWidth = ceil(text.size().width) + pillHeight * 1.1
-            let x = composition == .sideBySide ? sideColumnX
-                : style.alignment == .center ? (size.width - pillWidth) / 2 : (size.width - textWidth) / 2
+            let x = composition == .sideBySide ? sideColumnX : style.alignment == .center ? centered(pillWidth) : columnX
             badge = text
             badgeRect = CGRect(x: x, y: badgeY, width: pillWidth, height: pillHeight)
         }
@@ -753,6 +804,10 @@ enum ShotRenderer {
         }
         // Text only draws no device, whatever the arrangement placed above.
         if !hasDevice { layers = [] }
+        if composition == .overlay, hasCaption, anchor == nil, let front = layers.last {
+            return compose(shot: shot, style: style, sourceSize: sourceSize, captionBand: captionBand, companionSize: givenCompanionSize,
+                           anchor: OverlayAnchor(bounds: front.bounds, width: front.frame.width))
+        }
         let rect = hasDevice ? (layers.last?.imageRect ?? base) : .zero
         let device = layers.last?.device
         let fit = rect.width / sourceSize.width
@@ -794,7 +849,7 @@ enum ShotRenderer {
                            headline: headline, subtitle: subtitle, badge: badge, badgeRect: badgeRect, warnings: warnings,
                            advisories: advisories, layers: layers, callout: callout, composition: composition, stat: stat,
                            statRect: statRect,
-                           textColumn: CGRect(x: composition == .sideBySide ? sideColumnX : (size.width - textWidth) / 2, y: badgeY,
+                           textColumn: CGRect(x: columnX, y: badgeY,
                                               width: textWidth, height: max(0, captionHeight)),
                            panel: panel)
     }

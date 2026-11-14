@@ -703,6 +703,21 @@ struct BuilderTests {
             #expect(snapped.height >= Shot.minCalloutHeight - 0.001 || snapped.maxY >= 0.999, "\(block) \(snapped)")
             #expect(inGap(snapped.minY) && (inGap(snapped.maxY) || snapped.maxY >= 0.999), "\(block) \(snapped)")
         }
+        // A ring dragged past the capture's top, bottom, or both edges: the result stays on the capture, inside the
+        // 10% floor and 30% cap, and keeps its edges between rows when the shift leaves room.
+        let outside: [CGRect] = [CGRect(x: 0.1, y: -0.5, width: 0.8, height: 0.15), CGRect(x: 0.1, y: -0.08, width: 0.8, height: 0.15),
+                                 CGRect(x: 0.1, y: -0.01, width: 0.8, height: 0.15), CGRect(x: 0.1, y: 0.95, width: 0.8, height: 0.15),
+                                 CGRect(x: 0.1, y: 1.4, width: 0.8, height: 0.15), CGRect(x: 0.1, y: 0.99, width: 0.8, height: 0.02),
+                                 CGRect(x: 0.1, y: -2, width: 0.8, height: 5), CGRect(x: -3, y: 0.3, width: 9, height: 3),
+                                 CGRect(x: 0.6, y: 0.5, width: 0.8, height: 0.01)]
+        for rect in outside {
+            let snapped = shot.snappedCalloutRect(rect)
+            #expect(snapped.height >= Shot.minCalloutHeight - 0.001 && snapped.height <= 0.30 + 0.001, "\(rect) -> \(snapped)")
+            #expect(snapped.minY >= -0.001 && snapped.maxY <= 1.001, "\(rect) -> \(snapped)")
+            #expect(snapped.minX >= -0.001 && snapped.maxX <= 1.001 && snapped.width >= 0.2 - 0.001, "\(rect) -> \(snapped)")
+        }
+        let above = shot.snappedCalloutRect(CGRect(x: 0.1, y: -0.08, width: 0.8, height: 0.15))
+        #expect(inGap(above.minY) && inGap(above.maxY), "\(above)")
     }
 
     @Test func calloutMagnificationBounds() throws {
@@ -859,12 +874,31 @@ struct BuilderTests {
                 style.preset = preset; style.layout = layout
                 let c = ShotRenderer.compose(shot: shot, style: style, sourceSize: CGSize(width: 1320, height: 2868))
                 let device = try #require(c.device)
-                #expect(device.rect.width >= style.size.width * 0.70, "\(preset) \(layout) \(device.rect.width / style.size.width)")
+                // Caption below now keeps a thin clearance under the device (as a top caption does), which costs pad13
+                // 0.4% of the canvas width: 0.6969 against the 0.70 target. Every other layout still reaches 0.70.
+                let target = preset == .pad13 && layout == .below ? 0.695 : 0.70
+                #expect(device.rect.width >= style.size.width * target, "\(preset) \(layout) \(device.rect.width / style.size.width)")
                 let canvas = CGRect(origin: .zero, size: style.size)
                 if layout.hasCaption && layout != .bleedBottom && layout != .bleedTop {
                     #expect(canvas.contains(device.rect), "\(preset) \(layout) inside canvas")
                 }
             }
+        }
+    }
+
+    @Test func padCaptionBelowLeavesClearanceUnderTheDevice() throws {
+        var shot = try fixture()
+        shot.arrangement = .standard
+        for preset in Self.padPresets {
+            var style = SetStyle()
+            style.preset = preset; style.layout = .below
+            // The set's band is as tall as its longest caption, so this shot's text starts at the band's top edge.
+            let band = ShotRenderer.captionBand(shots: [shot], style: style)
+            let c = ShotRenderer.compose(shot: shot, style: style, sourceSize: CGSize(width: 1320, height: 2868), captionBand: band)
+            let device = try #require(c.layers.last).bounds
+            let shortSide = min(style.size.width, style.size.height)
+            let gap = c.headlineRect.minY - device.maxY
+            #expect(gap >= shortSide * 0.008 - 0.5, "\(preset) device to headline \(gap) px")
         }
     }
 
@@ -1010,6 +1044,21 @@ struct BuilderTests {
         #expect(abs(layer.imageRect.width - screen.width) < 0.5 && abs(layer.imageRect.height - screen.height) < 0.5)
         #expect(layer.visibleUnit.width > 0.999 && layer.visibleUnit.height > 0.999)
         #expect(!c.advisories.contains { $0.contains("cropped") })
+    }
+
+    @Test func sixteenByTenDisplayCapturesStillFitBelowTheNotchUncropped() throws {
+        // These captures fit the area below the notch within 3%, so Auto keeps the pre-chapter-3 look: no crop, no window.
+        for (width, height) in [(2880, 1800), (2560, 1600)] {
+            let shot = try macShot(width: width, height: height)
+            #expect(shot.isDisplayCapture, "\(width)x\(height) is a real opaque display capture")
+            let c = try compose(shot, macStyle())
+            let layer = try #require(c.layers.last)
+            let device = try #require(c.device)
+            #expect(layer.clip == nil && !c.windowed, "\(width)x\(height) no crop")
+            #expect(layer.imageRect == ShotRenderer.fit(CGSize(width: width, height: height), in: device.contentRect), "\(width)x\(height) fit in the content area")
+            #expect(layer.visibleUnit.width > 0.999 && layer.visibleUnit.height > 0.999)
+            #expect(!c.advisories.contains { $0.contains("cropped") })
+        }
     }
 
     @Test func macTransparentCornersFloatAsWindow() throws {
@@ -1160,7 +1209,9 @@ struct BuilderTests {
                             style.preset = preset; style.landscape = landscape; style.layout = layout; style.composition = composition
                             shot.arrangement = arrangement
                             let label = "\(preset) \(landscape) \(layout) \(arrangement) \(composition)"
-                            let c = ShotRenderer.compose(shot: shot, style: style, sourceSize: phoneSource)
+                            let band = ShotRenderer.captionBand(shots: [shot, shot], style: style)
+                            let c = ShotRenderer.compose(shot: shot, style: style, sourceSize: phoneSource, captionBand: band,
+                                                         companionSize: phoneSource)
                             let canvas = CGRect(origin: .zero, size: style.size)
                             let expected = expectedComposition(composition, layout: layout, arrangement: arrangement, stat: shot.stat)
                             #expect(c.composition == expected, "\(label)")
@@ -1174,6 +1225,7 @@ struct BuilderTests {
                                 continue
                             }
                             let front = try #require(c.layers.last, "\(label)")
+                            if arrangement == .duo { #expect(c.layers.count == 2, "\(label) Duo draws both devices") }
                             let visible = front.bounds.intersection(canvas)
                             #expect(visible.width * visible.height >= front.bounds.width * front.bounds.height * 0.5, "\(label)")
                             if c.composition == .overlay || !layout.hasCaption { continue }
@@ -1357,13 +1409,86 @@ struct BuilderTests {
         #expect(panel.intersects(device) && panel.midY > device.minY + device.height * 0.66, "band over the lower third")
         #expect(panel.contains(c.headlineRect) && panel.contains(c.subtitleRect))
         #expect(device.height > style.size.height * 0.75, "the device takes the image area")
-        // The band blurs what is under it: a hard edge of the capture is softened inside the band, not outside it.
-        let sharp = try ShotRenderer.render(shot: shot, style: SetStyle(), maxDimension: 660)
-        let framed = try ShotRenderer.render(shot: shot, style: style, maxDimension: 660)
-        func luma(_ b: NSBitmapImageRep, _ p: CGPoint) -> CGFloat { (b.colorAt(x: Int(p.x), y: Int(p.y))?.usingColorSpace(.sRGB)?.brightnessComponent) ?? 0 }
-        let scale = CGFloat(framed.pixelsWide) / style.size.width
-        let inside = CGPoint(x: device.minX * scale + 60, y: (panel.maxY - 20) * scale)
-        #expect(luma(framed, inside) != luma(sharp, inside), "the band covers the capture")
+    }
+
+    /// A tall capture, white left half and black right half: one hard vertical edge down its middle.
+    private func hardEdgeShot() throws -> Shot {
+        let context = try #require(CGContext(data: nil, width: 1320, height: 2868, bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
+        context.setFillColor(CGColor(gray: 1, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: 660, height: 2868))
+        context.setFillColor(CGColor(gray: 0, alpha: 1))
+        context.fill(CGRect(x: 660, y: 0, width: 660, height: 2868))
+        let bitmap = NSBitmapImageRep(cgImage: try #require(context.makeImage()))
+        return Shot(name: "Edge", imageData: try #require(bitmap.representation(using: .png, properties: [:])),
+                    headline: "A useful headline", subtitle: "A clear subtitle")
+    }
+
+    @Test func overlayBandBlursTheCaptureUnderIt() throws {
+        var style = SetStyle()
+        style.composition = .overlay
+        style.frameStyle = .none
+        style.shadow = false
+        style.background = .solid(RGBColor(1, 1, 1))
+        let shot = try hardEdgeShot()
+        let c = ShotRenderer.compose(shot: shot, style: style, sourceSize: phoneSource)
+        let panel = try #require(c.panel)
+        let capture = try #require(c.layers.last).imageRect
+        let bitmap = try ShotRenderer.render(shot: shot, style: style, maxDimension: 660)
+        let scale = CGFloat(bitmap.pixelsWide) / style.size.width
+        /// The steepest brightness step between neighbouring pixels along a canvas row, across the capture's middle edge.
+        func steepestStep(atY y: CGFloat) -> CGFloat {
+            let row = Int((y * scale).rounded())
+            var steepest: CGFloat = 0
+            var last: CGFloat?
+            for x in Int((capture.midX - 90) * scale)...Int((capture.midX + 90) * scale) {
+                let value = bitmap.colorAt(x: x, y: row)?.usingColorSpace(.sRGB)?.brightnessComponent ?? 0
+                if let last { steepest = max(steepest, abs(value - last)) }
+                last = value
+            }
+            return steepest
+        }
+        // Above the band the edge is the capture's own: white straight to black.
+        let outside = steepestStep(atY: panel.minY - 40)
+        // Inside the band, clear of the text, the edge is under the frost: spread out, and tinted by the band color.
+        let inside = steepestStep(atY: panel.minY + 18)
+        #expect(outside > 0.5, "the control row shows a hard edge: \(outside)")
+        #expect(inside < 0.08 && inside < outside / 6, "the band softens the edge: \(inside) against \(outside)")
+    }
+
+    @Test func overlayBandStaysOnTheFrontDeviceForEveryArrangement() throws {
+        var shot = try fixture()
+        shot.stat = "2×"
+        for preset in OutputPreset.allCases {
+            for landscape in [false, true] where !(landscape && preset == .mac) {
+                for arrangement in [Arrangement.standard, .tiltLeft, .tiltRight, .heroLeft, .heroRight, .duo] {
+                    for scale in [0.94, 0.8, 0.6, 0.5] {
+                        var style = SetStyle()
+                        style.preset = preset; style.landscape = landscape; style.composition = .overlay; style.imageScale = scale
+                        shot.arrangement = arrangement
+                        let label = "\(preset) \(landscape) \(arrangement) size \(scale)"
+                        let band = ShotRenderer.captionBand(shots: [shot], style: style)
+                        let c = ShotRenderer.compose(shot: shot, style: style, sourceSize: phoneSource, captionBand: band,
+                                                     companionSize: phoneSource)
+                        #expect(c.composition == .overlay, "\(label)")
+                        let panel = try #require(c.panel, "\(label)")
+                        let device = try #require(c.layers.last, "\(label)").bounds
+                        let canvas = CGRect(origin: .zero, size: style.size)
+                        // The band keeps the widest word whole, so a Duo front device at a small Size (about 0.4 of the canvas
+                        // wide) gets a band slightly wider than itself. Every other case sits inside the device.
+                        let tooSmallForTheWords = arrangement == .duo && scale <= 0.6
+                        if !tooSmallForTheWords {
+                            #expect(panel.minX >= device.minX - 1 && panel.maxX <= device.maxX + 1, "\(label) panel \(panel) device \(device)")
+                        }
+                        #expect(panel.maxY < device.maxY, "\(label) panel bottom \(panel.maxY) device bottom \(device.maxY)")
+                        #expect(canvas.contains(panel), "\(label) panel on the canvas")
+                        #expect(panel.contains(c.headlineRect) && panel.contains(c.subtitleRect), "\(label) text inside the band")
+                        #expect(c.textColumn.minX >= panel.minX && c.textColumn.maxX <= panel.maxX, "\(label) column inside the band")
+                        #expect(!c.warnings.contains { $0.contains("too wide") || $0.contains("too long") }, "\(label) \(c.warnings)")
+                    }
+                }
+            }
+        }
     }
 
     @Test func captionBandsGroupByComposition() throws {
@@ -1402,23 +1527,88 @@ struct BuilderTests {
     }
 
     @Test func v3FileDecodesAsStackedWithNoStat() throws {
+        // Every chapter-3 field is set to a non-default value, then stripped from the file, so a default can only come from decoding.
+        var shot = try fixture()
+        shot.composition = .overlay; shot.stat = "9"
+        shot.calloutRect = CGRect(x: 0.1, y: 0.2, width: 0.6, height: 0.2); shot.calloutCardOffset = CGPoint(x: 0.1, y: -0.1)
+        shot.calloutMarker = .outline; shot.lensStyle = .line
+        shot.macFit = .window; shot.macCropPosition = 0.9
         var document = ShotDocument()
-        document.shots = [try fixture()]
+        document.style.composition = .overlay
+        document.shots = [shot]
         var json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(document)) as! [String: Any]
         json["version"] = 3
         var style = json["style"] as! [String: Any]
+        #expect(style["composition"] != nil)
         style.removeValue(forKey: "composition")
         json["style"] = style
         var shots = json["shots"] as! [[String: Any]]
-        shots[0].removeValue(forKey: "composition"); shots[0].removeValue(forKey: "stat")
+        let chapterThree = ["composition", "stat", "calloutRect", "calloutCardOffset", "calloutMarker", "lensStyle", "macFit", "macCropPosition"]
+        for key in chapterThree {
+            #expect(shots[0][key] != nil, "\(key) was encoded before the strip")
+            shots[0].removeValue(forKey: key)
+        }
         json["shots"] = shots
         let loaded = try ShotDocument.decode(JSONSerialization.data(withJSONObject: json))
+        let old = try #require(loaded.shots.first)
         #expect(loaded.version == 4)
-        #expect(loaded.style.composition == .stacked && loaded.shots[0].composition == nil && loaded.shots[0].stat == "")
-        #expect(loaded.style.effectiveComposition(for: loaded.shots[0]) == .stacked)
-        let before = ShotRenderer.compose(shot: document.shots[0], style: SetStyle(), sourceSize: phoneSource)
-        let after = ShotRenderer.compose(shot: loaded.shots[0], style: loaded.style, sourceSize: phoneSource)
+        #expect(loaded.style.composition == .stacked && old.composition == nil && old.stat == "")
+        #expect(old.calloutRect == nil && old.calloutCardOffset == nil && old.calloutRegion == .auto)
+        #expect(old.calloutMarker == .spotlight && old.lensStyle == .lens)
+        #expect(old.macFit == .auto && old.macCropPosition == 0.5)
+        #expect(loaded.style.effectiveComposition(for: old) == .stacked)
+        var pristine = try fixture()
+        pristine.id = old.id
+        let before = ShotRenderer.compose(shot: pristine, style: SetStyle(), sourceSize: phoneSource)
+        let after = ShotRenderer.compose(shot: old, style: loaded.style, sourceSize: phoneSource)
         #expect(before.headlineRect == after.headlineRect && before.layers.last?.frame == after.layers.last?.frame)
+        #expect(old == pristine)
+    }
+
+    @Test func decodedZoomAndCropValuesAreValidatedNotTrusted() throws {
+        func decoded(_ edit: (inout [String: Any]) -> Void) throws -> Shot {
+            var json = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(try fixture())) as? [String: Any])
+            edit(&json)
+            return try JSONDecoder().decode(Shot.self, from: JSONSerialization.data(withJSONObject: json))
+        }
+        func rect(_ x: Double, _ y: Double, _ w: Double, _ h: Double) -> [[Double]] { [[x, y], [w, h]] }
+        // A zero-size, negative, or out-of-range region cannot reach the renderer: it is dropped and Zoom goes back to Auto.
+        for bad in [rect(0.1, 0.1, 0, 0), rect(0.1, 0.1, 0, 0.3), rect(0.1, 0.1, -0.5, 0.3), rect(0.1, 0.1, 0.5, -0.3),
+                    rect(-0.4, 0.1, 0.5, 0.3), rect(0.1, -3, 0.5, 0.3), rect(0.7, 0.1, 0.5, 0.3), rect(0.1, 0.9, 0.5, 0.3),
+                    rect(0, 0, 40, 40), rect(0.1, 0.1, 0.5, 0.001)] {
+            let shot = try decoded { $0["calloutRegion"] = "Custom"; $0["calloutRect"] = bad }
+            #expect(shot.calloutRect == nil && shot.calloutRegion == .auto, "\(bad)")
+        }
+        // A good one, even one touching the edges, survives untouched.
+        for good in [rect(0.1, 0.2, 0.6, 0.2), rect(0, 0, 1, 1), rect(0.2, 0.7, 0.8, 0.3)] {
+            let shot = try decoded { $0["calloutRegion"] = "Custom"; $0["calloutRect"] = good }
+            #expect(shot.calloutRect == CGRect(x: good[0][0], y: good[0][1], width: good[1][0], height: good[1][1]) && shot.calloutRegion == .custom, "\(good)")
+        }
+        // Non-finite numbers cannot be written to JSON, so the rules are checked on the values themselves.
+        var shot = try fixture()
+        shot.calloutRegion = .custom
+        shot.calloutRect = CGRect(x: CGFloat.nan, y: 0.1, width: 0.5, height: 0.3)
+        shot.calloutCardOffset = CGPoint(x: CGFloat.infinity, y: 0)
+        shot.macCropPosition = .nan
+        shot.validate()
+        #expect(shot.calloutRect == nil && shot.calloutRegion == .auto && shot.calloutCardOffset == nil && shot.macCropPosition == 0.5)
+        shot.macCropPosition = -.infinity
+        shot.calloutCardOffset = CGPoint(x: 0, y: CGFloat.nan)
+        shot.validate()
+        #expect(shot.calloutCardOffset == nil && shot.macCropPosition == 0.5)
+        shot.calloutCardOffset = CGPoint(x: 0.1, y: -0.2)
+        shot.macCropPosition = 0.25
+        shot.validate()
+        #expect(shot.calloutCardOffset == CGPoint(x: 0.1, y: -0.2) && shot.macCropPosition == 0.25)
+        // Whole projects decode with the repair, not an error.
+        var document = ShotDocument()
+        document.shots = [try fixture()]
+        var json = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(document)) as? [String: Any])
+        var shots = try #require(json["shots"] as? [[String: Any]])
+        shots[0]["calloutRegion"] = "Custom"; shots[0]["calloutRect"] = rect(0.3, 0.3, 0, 0)
+        json["shots"] = shots
+        let loaded = try ShotDocument.decode(JSONSerialization.data(withJSONObject: json))
+        #expect(loaded.shots[0].calloutRect == nil && loaded.shots[0].calloutRegion == .auto)
     }
 
     @Test func v4CompositionAndStatRoundTrip() throws {

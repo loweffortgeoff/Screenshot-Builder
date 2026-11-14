@@ -63,6 +63,27 @@ struct Shot: Codable, Equatable, Identifiable {
         badge = try c.decodeIfPresent(String.self, forKey: .badge) ?? ""
         composition = try c.decodeIfPresent(CaptionComposition.self, forKey: .composition)
         stat = try c.decodeIfPresent(String.self, forKey: .stat) ?? ""
+        validate()
+    }
+
+    /// Repairs values a hand-edited or damaged file can carry, so they never reach the renderer. A Zoom region that is
+    /// not finite, too small, or outside the capture is dropped (a Custom region goes back to Auto); a non-finite card
+    /// offset is dropped; a non-finite crop position returns to the middle. The file still opens.
+    mutating func validate() {
+        if let rect = calloutRect, !Shot.isUsableCalloutRect(rect) {
+            calloutRect = nil
+            if calloutRegion == .custom { calloutRegion = .auto }
+        }
+        if let offset = calloutCardOffset, !(offset.x.isFinite && offset.y.isFinite) { calloutCardOffset = nil }
+        if !macCropPosition.isFinite { macCropPosition = 0.5 }
+    }
+
+    private static func isUsableCalloutRect(_ rect: CGRect) -> Bool {
+        let tolerance: CGFloat = 1e-6
+        return [rect.minX, rect.minY, rect.width, rect.height].allSatisfy(\.isFinite)
+            && rect.width >= 0.01 && rect.height >= 0.01
+            && rect.minX >= -tolerance && rect.minY >= -tolerance
+            && rect.maxX <= 1 + tolerance && rect.maxY <= 1 + tolerance
     }
 
     /// Decoded images, keyed by content, so typing does not re-decode every capture.
@@ -233,7 +254,10 @@ extension Shot {
             let down = below.map { (inside.bottom + $0.top) / 2 } ?? min(1, inside.bottom + 0.005)
             return value - up <= down - value ? up : down
         }
-        var top = gapEdge(near: rect.minY), bottom = gapEdge(near: rect.maxY)
+        // A ring dragged past the capture's edge is shifted back first, keeping its height, so the edges snap from real positions.
+        let dragged = min(max(rect.height, 0), 1)
+        let start = min(max(rect.minY, 0), 1 - dragged)
+        var top = gapEdge(near: start), bottom = gapEdge(near: start + dragged)
         // The same 10% floor as the automatic crop, so a dragged ring never shrinks to one sparse row.
         // Grow down to the first gap at or below the floor, so the new edge still falls between rows.
         let floor = Shot.minCalloutHeight
@@ -246,9 +270,13 @@ extension Shot {
                 bottom = min(1, target)
             }
         }
+        // A floor that ran into the capture's bottom grows upward instead.
+        if bottom - top < floor { top = bottom - floor }
         if bottom - top > 0.30 { bottom = top + 0.30 }
-        top = min(max(0, top), 1 - (bottom - top))
-        return CGRect(x: x, y: top, width: width, height: min(bottom, 1) - top)
+        // Whatever the edges did, the band keeps its height and lies inside the capture.
+        let height = bottom - top
+        top = min(max(0, top), 1 - height)
+        return CGRect(x: x, y: top, width: width, height: height)
     }
 
     /// The crop band (unit coordinates) for a Zoom callout: whole blocks, with both edges in the gaps between blocks.
