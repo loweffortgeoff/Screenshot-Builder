@@ -16,6 +16,42 @@ struct BackgroundSwatch: View {
 }
 
 /// One selectable theme tile: the background with an "Aa" sample in the theme's text and accent colors.
+/// A small tile for one backdrop layer.
+struct BackdropTile: View {
+    let kind: BackdropKind
+    let selected: Bool
+    let action: () -> Void
+
+    private var symbol: String {
+        switch kind {
+        case .none: "nosign"
+        case .orb: "circle.fill"
+        case .bokeh: "circle.grid.2x2.fill"
+        case .arcs: "dot.radiowaves.right"
+        case .rays: "sun.max.fill"
+        }
+    }
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 4) {
+                Image(systemName: symbol)
+                    .font(.system(size: 15))
+                    .frame(maxWidth: .infinity, minHeight: 32)
+                    .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .strokeBorder(selected ? Color.accentColor : Color.primary.opacity(0.12), lineWidth: selected ? 2.5 : 1)
+                    }
+                Text(kind.rawValue).font(.caption2).foregroundStyle(selected ? .primary : .secondary).lineLimit(1)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(kind.rawValue) backdrop")
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
 struct ThemeTile: View {
     let theme: Theme
     let selected: Bool

@@ -15,6 +15,8 @@ struct StyleInspector: View {
     var arrangement: AnyView?
     /// The selected shot as it exports, for the Placement mini preview.
     var preview: NSImage?
+    /// Advanced background starts closed, so the default Style tab stays short.
+    @State private var advancedOpen = false
 
     var body: some View {
         switch tab {
@@ -57,6 +59,18 @@ struct StyleInspector: View {
                 }
             }
             .padding(.vertical, 4)
+            DisclosureGroup("Advanced background", isExpanded: $advancedOpen) {
+                HStack(spacing: 8) {
+                    ForEach(BackdropKind.allCases) { kind in
+                        BackdropTile(kind: kind, selected: style.backdrop.kind == kind) { style.backdrop.kind = kind }
+                    }
+                }
+                .padding(.vertical, 4)
+                Toggle("Shift hue per shot", isOn: $style.backdrop.hueShift)
+                    .disabled(style.spanSet)
+                    .help(style.spanSet ? "Flow across the set joins neighbours; a hue shift would break the seams."
+                                        : "Each shot turns the background hue a step further, while text stays readable.")
+            }
         } header: {
             HStack {
                 Text("Theme")
