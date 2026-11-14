@@ -5,6 +5,7 @@
 - iPad acceptance: not tested by Geoff (2026-11-14, no iPad Pro on hand). iPad output can be checked with iPad Pro simulator captures; Geoff's acceptance stays open.
 
 ## Backlog
+- Film grain on large gradients: both GPT judges named it in the chapter 4 calibration (2026-11-14). Outside the chapter 4 scope; revisit if the M9 review repeats it.
 - Highlight menu: typed markup that spans words (for example `*one tap*`) shows unchecked and cannot be cleared from the menu; a word both typed and stored needs two clicks. Found in code review 2026-11-13; low impact because the menu writes single-word accents.
 - Mac fit advisory: when Auto chooses Window, no advisory names that choice (only an explicit Window does). Kept quiet to avoid a warning on every Mac window set. Found in the chapter 3 review, 2026-11-14.
 - Editor performance: `PreviewPane` composes the shot in its view body, so a Zoom shot costs about 10 ms per keystroke or drag step (measured 2026-11-14). Cache the layout with the render if typing ever feels slow.

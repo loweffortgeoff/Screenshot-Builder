@@ -280,7 +280,8 @@ Tests alone are not sufficient verification. A milestone is verified only when i
 
 **Build.**
 
-- [ ] The option Geoff picks in Q1, then Q2 if relaxed. If Q1 is A and Q2 is keep, skip M6 and say so.
+- [ ] Q1 B (Geoff, 2026-11-14). The card border and lens connector take a tint between white and the theme accent, at the same width. The card shadow alpha drops from 0.40 to 0.28. The marker does not change. Q2 keeps the 1.6× floor and the 0.24 band cap.
+- [ ] Fold in the M0 finding. The Auto crop on `export-zoom-ch3.png` (List Happens shot 4) takes the "Recent Trips" heading without its rows. Make the crop stop before a heading row whose group does not fit. Add a test with a synthetic heading-then-rows block.
 
 **You see.**
 
