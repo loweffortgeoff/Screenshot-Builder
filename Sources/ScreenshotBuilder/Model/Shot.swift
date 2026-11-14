@@ -16,6 +16,8 @@ struct Shot: Codable, Equatable, Identifiable {
     var companion: UUID?
     /// The part of the capture a Zoom callout magnifies.
     var calloutRegion: CalloutRegion = .auto
+    /// Optional short label drawn as an accent pill above the headline, such as "NEW".
+    var badge = ""
 
     init(id: UUID = UUID(), name: String, imageData: Data, headline: String = "", subtitle: String = "", accents: [String] = [],
          arrangement: Arrangement = .standard) {
@@ -34,6 +36,7 @@ struct Shot: Codable, Equatable, Identifiable {
         arrangement = try c.decodeIfPresent(Arrangement.self, forKey: .arrangement) ?? .standard
         companion = try c.decodeIfPresent(UUID.self, forKey: .companion)
         calloutRegion = try c.decodeIfPresent(CalloutRegion.self, forKey: .calloutRegion) ?? .auto
+        badge = try c.decodeIfPresent(String.self, forKey: .badge) ?? ""
     }
 
     /// Decoded images, keyed by content, so typing does not re-decode every capture.

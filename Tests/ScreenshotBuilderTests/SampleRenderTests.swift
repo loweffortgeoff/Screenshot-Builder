@@ -34,9 +34,15 @@ struct SampleRenderTests {
         // SB_CAPTIONS: a file of "headline|subtitle" lines, one per capture, overrides the built-in captions.
         let captions: [(String, String)] = env["SB_CAPTIONS"].flatMap { try? String(contentsOfFile: $0, encoding: .utf8) }
             .map { $0.split(separator: "\n").map { line in
-                let parts = line.split(separator: "|", maxSplits: 1).map(String.init)
+                let parts = line.split(separator: "|", maxSplits: 2).map(String.init)
                 return (parts.first ?? "", parts.count > 1 ? parts[1] : "")
             } } ?? Self.captions
+        // Optional badges: SB_BADGES="1:New,3:Insights" (1-based shot numbers).
+        let badges = Dictionary(uniqueKeysWithValues: (env["SB_BADGES"] ?? "").split(separator: ",").compactMap { item -> (Int, String)? in
+            let parts = item.split(separator: ":", maxSplits: 1)
+            guard parts.count == 2, let n = Int(parts[0]) else { return nil }
+            return (n - 1, String(parts[1]))
+        })
         for (index, caption) in captions.enumerated() {
             let url = samples.appendingPathComponent(String(format: "%02d.png", index + 1))
             guard FileManager.default.fileExists(atPath: url.path) else { continue }
@@ -46,6 +52,7 @@ struct SampleRenderTests {
             shot.headline = parts.joined()
             shot.accents = parts.enumerated().filter { $0.offset % 2 == 1 }.flatMap { $0.element.split(separator: " ").map(String.init) }
             shot.subtitle = caption.1
+            shot.badge = badges[index] ?? ""
             document.shots.append(shot)
         }
         try #require(!document.shots.isEmpty)

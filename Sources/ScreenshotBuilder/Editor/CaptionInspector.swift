@@ -40,6 +40,7 @@ struct CaptionInspector: View {
                 .help("Color words with the theme accent.")
             }
             field("Subtitle", text: changed(\.subtitle), prompt: "Optional supporting line", lines: 1...3) { EmptyView() }
+            field("Badge", text: changed(\.badge), prompt: "Optional label, such as NEW", lines: 1...1) { EmptyView() }
             if !style.layout.hasCaption {
                 Label("Captions are saved but hidden in this layout.", systemImage: "eye.slash")
                     .font(.caption).foregroundStyle(.secondary)

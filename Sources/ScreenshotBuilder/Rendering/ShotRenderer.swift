@@ -16,6 +16,9 @@ enum ShotRenderer {
         var subtitleRect: CGRect
         var headline: NSAttributedString
         var subtitle: NSAttributedString
+        /// Optional accent pill above the headline.
+        var badge: NSAttributedString?
+        var badgeRect: CGRect = .zero
         var warnings: [String]
         /// Advice that does not block export (soft source, capture shaped for another device).
         var advisories: [String] = []
@@ -98,7 +101,12 @@ enum ShotRenderer {
         var height: CGFloat
         /// Headline line count for the set. Short headlines wrap to match when they can.
         var lines: Int
+        /// Any shot in the set has a badge, so every shot reserves the badge row and headlines stay aligned.
+        var badgeRow = false
     }
+
+    /// Height of the badge pill plus its gap to the headline.
+    static func badgeRowHeight(_ metrics: CaptionMetrics) -> CGFloat { metrics.subSize * 1.5 + metrics.gap }
 
     /// Tall enough for the longest caption, never above two headline lines plus two subtitle lines.
     static func captionBand(shots: [Shot], style: SetStyle) -> CaptionBand {
@@ -106,7 +114,9 @@ enum ShotRenderer {
         let lines = min(2, shots.map { naturalLines(headlineText($0.headline, accents: $0.accents, style: style, size: metrics.headSize),
                                                      width: metrics.textWidth) }.max() ?? 1)
         let needed = shots.map { captionHeight(shot: $0, style: style, metrics: metrics, lines: lines).total }.max() ?? 0
-        return CaptionBand(height: min(max(needed, 1), metrics.maxBand), lines: max(1, lines))
+        let badgeRow = shots.contains { !$0.badge.trimmingCharacters(in: .whitespaces).isEmpty }
+        let extra = badgeRow ? badgeRowHeight(metrics) : 0
+        return CaptionBand(height: min(max(needed, 1), metrics.maxBand) + extra, lines: max(1, lines), badgeRow: badgeRow)
     }
 
     private static func naturalLines(_ text: NSAttributedString, width: CGFloat) -> Int {
@@ -152,7 +162,10 @@ enum ShotRenderer {
         let subtitle = subtitleText(shot.subtitle, style: style, size: metrics.subSize)
         let caption = captionHeight(shot: shot, style: style, metrics: metrics, lines: captionBand?.lines)
         let needed = caption.total
-        let captionHeight = hasCaption ? (captionBand?.height ?? metrics.maxBand) : 0
+        let badgeText = shot.badge.trimmingCharacters(in: .whitespaces)
+        let badgeRow = captionBand?.badgeRow ?? !badgeText.isEmpty
+        let badgeExtra = hasCaption && badgeRow ? Self.badgeRowHeight(metrics) : 0
+        let captionHeight = hasCaption ? (captionBand?.height ?? metrics.maxBand + badgeExtra) : 0
         let separation = hasCaption ? metrics.separation : 0
         let top = margin * 1.25
         let imageArea = CGRect(x: margin, y: top + (style.layout.captionOnTop ? captionHeight + separation : 0),
@@ -309,7 +322,8 @@ enum ShotRenderer {
         let fit = rect.width / sourceSize.width
         // The band is shared across the set and captions start at its top, so headlines share a line.
         let captionTop = style.layout.captionOnTop ? top : size.height - margin * 1.6 - captionHeight
-        let textY = style.layout.captionOnTop ? captionTop : captionTop + max(0, captionHeight - needed)
+        let badgeY = style.layout.captionOnTop ? captionTop : captionTop + max(0, captionHeight - needed - badgeExtra)
+        let textY = badgeY + badgeExtra
         let textWidth = metrics.textWidth
         var warnings: [String] = []
         if hasCaption && needed > metrics.maxBand + 0.5 { warnings.append("Caption is too long. Shorten the headline or subtitle before export.") }
@@ -332,10 +346,20 @@ enum ShotRenderer {
             return CGRect(x: x, y: y, width: width, height: height)
         }
         let gap = caption.head > 0 && caption.sub > 0 ? metrics.gap : 0
+        var badge: NSAttributedString?
+        var badgeRect = CGRect.zero
+        if hasCaption && !badgeText.isEmpty {
+            let text = Self.badgeText(badgeText.uppercased(), style: style, size: metrics.subSize * 0.62)
+            let pillHeight = metrics.subSize * 1.5
+            let pillWidth = ceil(text.size().width) + pillHeight * 1.1
+            let x = style.alignment == .center ? (size.width - pillWidth) / 2 : (size.width - textWidth) / 2
+            badge = text
+            badgeRect = CGRect(x: x, y: badgeY, width: pillWidth, height: pillHeight)
+        }
         return Composition(imageRect: rect,
                            headlineRect: textRect(width: caption.headWidth, y: textY, height: caption.head),
                            subtitleRect: textRect(width: caption.subWidth, y: textY + caption.head + gap, height: caption.sub),
-                           headline: headline, subtitle: subtitle, warnings: warnings,
+                           headline: headline, subtitle: subtitle, badge: badge, badgeRect: badgeRect, warnings: warnings,
                            advisories: advisories, layers: layers, callout: callout)
     }
 
@@ -467,6 +491,15 @@ enum ShotRenderer {
         }
         // AppKit text drawing needs the flipped context flag as well as the transform.
         NSGraphicsContext.current = NSGraphicsContext(cgContext: cg, flipped: true)
+        if style.layout.hasCaption, let badge = composition.badge {
+            // Accent pill with text in black or white, whichever reads better on the accent.
+            let pill = composition.badgeRect
+            cg.addPath(CGPath(roundedRect: pill, cornerWidth: pill.height / 2, cornerHeight: pill.height / 2, transform: nil))
+            cg.setFillColor(style.accent.nsColor.cgColor)
+            cg.fillPath()
+            let textSize = badge.size()
+            badge.draw(at: CGPoint(x: pill.midX - textSize.width / 2, y: pill.midY - textSize.height / 2))
+        }
         if style.layout.hasCaption {
             composition.headline.draw(with: composition.headlineRect, options: [.usesLineFragmentOrigin, .usesFontLeading])
             composition.subtitle.draw(with: composition.subtitleRect, options: [.usesLineFragmentOrigin, .usesFontLeading])
@@ -633,6 +666,15 @@ enum ShotRenderer {
         // Tight tracking suits display sizes.
         output.addAttribute(.kern, value: -size * 0.012, range: NSRange(location: 0, length: output.length))
         return output
+    }
+
+    static func badgeText(_ text: String, style: SetStyle, size: CGFloat) -> NSAttributedString {
+        let a = style.accent
+        let luminance = 0.2126 * a.red + 0.7152 * a.green + 0.0722 * a.blue
+        return NSAttributedString(string: text, attributes: [
+            .font: style.font.font(size: size, weight: .bold),
+            .foregroundColor: luminance > 0.55 ? NSColor.black : NSColor.white,
+            .kern: size * 0.08])
     }
 
     static func subtitleText(_ text: String, style: SetStyle, size: CGFloat) -> NSAttributedString {

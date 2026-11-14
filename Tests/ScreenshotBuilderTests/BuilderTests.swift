@@ -572,4 +572,21 @@ struct BuilderTests {
         document.varyLayouts()
         #expect(document.shots[0].arrangement != .duo)
     }
+
+    @Test func badgesReserveARowAndKeepHeadlinesAligned() throws {
+        var badged = try fixture()
+        badged.badge = "New"
+        let plain = try fixture()
+        let style = SetStyle()
+        let band = ShotRenderer.captionBand(shots: [badged, plain], style: style)
+        #expect(band.badgeRow)
+        #expect(band.height > ShotRenderer.captionBand(shots: [plain], style: style).height)
+        let source = CGSize(width: 1320, height: 2868)
+        let a = ShotRenderer.compose(shot: badged, style: style, sourceSize: source, captionBand: band)
+        let b = ShotRenderer.compose(shot: plain, style: style, sourceSize: source, captionBand: band)
+        #expect(a.badge != nil && b.badge == nil)
+        #expect(a.headlineRect.minY == b.headlineRect.minY)
+        #expect(a.badgeRect.maxY < a.headlineRect.minY)
+        #expect(a.subtitleRect.maxY <= (a.device?.rect.minY ?? .infinity))
+    }
 }
