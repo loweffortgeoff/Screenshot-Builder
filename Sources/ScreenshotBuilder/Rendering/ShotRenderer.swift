@@ -21,6 +21,8 @@ enum ShotRenderer {
         var device: DeviceFrame?
         /// Display corner radius for the capture, in canvas points.
         var cornerRadius: CGFloat = 0
+        /// A laptop showing a window capture: the window floats on a desktop wallpaper.
+        var windowed = false
     }
 
     /// Largest rect with `aspect`'s proportions that fits in `box`, centered.
@@ -136,6 +138,7 @@ enum ShotRenderer {
         var device: DeviceFrame?
         let rect: CGRect
         var cornerRadius: CGFloat = 0
+        var windowed = false
         switch style.frameStyle {
         case .device:
             let rotated = style.landscape && style.preset != .mac
@@ -143,7 +146,16 @@ enum ShotRenderer {
                                     rect: place(DeviceFrame.outerSize(spec, landscape: rotated)))
             device = frame
             // Captures keep their proportions; a mismatched capture sits on black glass.
-            rect = Self.fit(sourceSize, in: frame.contentRect)
+            let content = frame.contentRect
+            let mismatch = abs(sourceSize.width / sourceSize.height - content.width / content.height) / (content.width / content.height)
+            if spec.family == .laptop && mismatch > 0.03 {
+                // A window capture, not a full-screen one: float it on a wallpaper with room around it.
+                windowed = true
+                rect = Self.fit(sourceSize, in: content.insetBy(dx: content.width * 0.07, dy: content.height * 0.08))
+                cornerRadius = rect.width * 0.008
+            } else {
+                rect = Self.fit(sourceSize, in: content)
+            }
         case .rounded:
             rect = place(sourceSize)
             let ratio = spec.screenRadius > 0 ? spec.screenRadius / min(spec.screen.width, spec.screen.height) : 0.04
@@ -173,7 +185,7 @@ enum ShotRenderer {
                            headlineRect: textRect(width: caption.headWidth, y: textY, height: caption.head),
                            subtitleRect: textRect(width: caption.subWidth, y: textY + caption.head + gap, height: caption.sub),
                            headline: headline, subtitle: subtitle, warnings: warnings,
-                           device: device, cornerRadius: cornerRadius)
+                           device: device, cornerRadius: cornerRadius, windowed: windowed)
     }
 
     static func warnings(shot: Shot, style: SetStyle) -> [String] {
@@ -216,7 +228,7 @@ enum ShotRenderer {
             // Two shadows: a wide ambient one and a tight contact one. Offsets are in device pixels.
             let unit = min(size.width, size.height)
             let pixelScale = CGFloat(width) / size.width
-            for (offset, blur, alpha) in [(0.03, 0.09, 0.30), (0.008, 0.018, 0.30)] as [(CGFloat, CGFloat, CGFloat)] {
+            for (offset, blur, alpha) in [(0.03, 0.09, 0.42), (0.008, 0.018, 0.32)] as [(CGFloat, CGFloat, CGFloat)] {
                 cg.saveGState()
                 cg.setShadow(offset: CGSize(width: 0, height: -unit * offset * pixelScale), blur: unit * blur * pixelScale,
                              color: CGColor(gray: 0, alpha: alpha))
@@ -227,12 +239,55 @@ enum ShotRenderer {
             }
         }
         if let device = composition.device {
-            device.draw(in: cg, finish: DeviceFinish.named(style.finish, for: device.spec.family), drawScreen: drawCapture)
+            let screen = composition.windowed ? {
+                // Desktop wallpaper from the theme, then the window with its own shadow and corners.
+                let content = device.contentRect
+                cg.saveGState()
+                cg.translateBy(x: device.screenRect.minX, y: device.screenRect.minY)
+                drawBackground(style.background, in: cg, size: device.screenRect.size, position: .single)
+                cg.restoreGState()
+                cg.setFillColor(CGColor(gray: 0, alpha: 0.18))
+                cg.fill(device.screenRect)
+                let window = CGPath(roundedRect: composition.imageRect, cornerWidth: composition.cornerRadius,
+                                    cornerHeight: composition.cornerRadius, transform: nil)
+                let pixelScale = CGFloat(width) / size.width
+                cg.saveGState()
+                cg.setShadow(offset: CGSize(width: 0, height: -content.height * 0.012 * pixelScale),
+                             blur: content.height * 0.05 * pixelScale, color: CGColor(gray: 0, alpha: 0.5))
+                cg.addPath(window); cg.setFillColor(CGColor(gray: 0.1, alpha: 1)); cg.fillPath()
+                cg.restoreGState()
+                cg.saveGState()
+                cg.addPath(window); cg.clip()
+                drawCapture()
+                cg.restoreGState()
+            } : drawCapture
+            device.draw(in: cg, finish: DeviceFinish.named(style.finish, for: device.spec.family), drawScreen: screen)
         } else {
             cg.saveGState()
             cg.addPath(silhouette)
             cg.clip()
             drawCapture()
+            cg.restoreGState()
+        }
+        if style.layout == .bleedBottom || style.layout == .bleedTop {
+            // Fade the device into the background where it runs off the canvas, so the cut reads as intended.
+            let depth = size.height * 0.07
+            let band = style.layout == .bleedBottom ? CGRect(x: 0, y: size.height - depth, width: size.width, height: depth)
+                                                    : CGRect(x: 0, y: 0, width: size.width, height: depth)
+            cg.saveGState()
+            cg.clip(to: band)
+            cg.beginTransparencyLayer(auxiliaryInfo: nil)
+            drawBackground(style.background, in: cg, size: size, position: style.spanSet ? position : .single)
+            if style.grain && style.background.kind != .solid { drawGrain(in: cg, size: size) }
+            cg.setBlendMode(.destinationIn)
+            if let space = CGColorSpace(name: CGColorSpace.sRGB),
+               let mask = CGGradient(colorsSpace: space, colors: [CGColor(gray: 0, alpha: 0), CGColor(gray: 0, alpha: 1)] as CFArray,
+                                     locations: [0, 1]) {
+                let inner = style.layout == .bleedBottom ? band.minY : band.maxY
+                let outer = style.layout == .bleedBottom ? band.maxY : band.minY
+                cg.drawLinearGradient(mask, start: CGPoint(x: 0, y: inner), end: CGPoint(x: 0, y: outer), options: [])
+            }
+            cg.endTransparencyLayer()
             cg.restoreGState()
         }
         // AppKit text drawing needs the flipped context flag as well as the transform.

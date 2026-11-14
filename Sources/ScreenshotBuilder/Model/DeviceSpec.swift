@@ -118,7 +118,7 @@ struct DeviceFinish: Identifiable, Equatable {
     static func all(for family: DeviceSpec.Family) -> [DeviceFinish] {
         switch family {
         case .phone, .classicPhone:
-            [make("Black", 0x161415, 0x2D2A2D, 0x5E5A5E, 0x878486),
+            [make("Black", 0x161415, 0x302D30, 0x8A868A, 0x878486),
              make("Silver", 0x6C6C6C, 0xBFBFBF, 0xEFEFEF, 0xE1E1E1),
              make("Glacier", 0x6F7C8F, 0xB9C5D6, 0xE6EEF8, 0xD7E1F1),
              make("Burgundy", 0x2A161A, 0x57353B, 0x8E5D66, 0xC48892)]

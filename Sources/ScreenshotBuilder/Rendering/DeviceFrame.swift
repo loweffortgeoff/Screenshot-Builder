@@ -143,7 +143,7 @@ struct DeviceFrame {
             cg.replacePathWithStrokedPath()
             cg.clip()
             let white = RGBColor(1, 1, 1)
-            if let sheen = CGGradient(colorsSpace: space, colors: [white.nsColor.withAlphaComponent(0.55).cgColor,
+            if let sheen = CGGradient(colorsSpace: space, colors: [white.nsColor.withAlphaComponent(0.75).cgColor,
                                                                    white.nsColor.withAlphaComponent(0.04).cgColor,
                                                                    white.nsColor.withAlphaComponent(0.22).cgColor] as CFArray,
                                       locations: [0, 0.5, 1]) {
