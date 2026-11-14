@@ -279,6 +279,98 @@ struct ChapterFourTests {
         #expect(old.style.backdrop == Backdrop())
     }
 
+    // MARK: Starter looks
+
+    @Test func everyLookHasItsThemeAndPassesContrastWithNoIssues() throws {
+        #expect(Look.all.map(\.name) == ["Orb", "Bokeh", "Editorial", "Scoreboard", "Rays", "Calm"])
+        for look in Look.all {
+            let theme = try #require(Theme.named(look.theme), "\(look.name) theme")
+            for preset in [OutputPreset.phone69, .phone61, .pad13, .mac] {
+                for landscape in [false, true] where !(landscape && preset == .mac) {
+                    var document = ShotDocument()
+                    document.style.preset = preset
+                    document.style.landscape = landscape
+                    document.style.decor.appName = "AisleWise"
+                    document.shots = try ["Your list, sorted by aisle", "Every detail, one tap away", "See where your money goes",
+                                          "Track every trip", "Buy it again in seconds"].enumerated().map { index, headline in
+                        var shot = try fixture(headline)
+                        shot.eyebrow = "Section \(index + 1)"
+                        return shot
+                    }
+                    document.apply(look)
+                    let style = document.style
+                    let label = "\(look.name) \(preset) \(landscape)"
+                    #expect(style.theme == theme, "\(label) selects its theme swatch")
+                    #expect(style.composition == .stacked && style.layout == .bleedBottom && style.alignment == .leading, "\(label)")
+                    let band = ShotRenderer.captionBand(shots: document.shots, style: style)
+                    for (index, shot) in document.shots.enumerated() {
+                        let issues = ShotRenderer.issues(shot: shot, style: style, captionBand: band)
+                        // The fixture capture is small and phone-shaped, so only the capture advisories may appear.
+                        #expect(issues.blocking.isEmpty && !issues.advisory.contains { $0.contains("hard to read") },
+                                "\(label) shot \(index + 1): \(issues)")
+                        for stop in style.background(at: index, of: document.shots.count).colors {
+                            #expect(RGBColor.contrastRatio(style.foreground, stop) >= 3 && RGBColor.contrastRatio(style.accent, stop) >= 3,
+                                    "\(label) shot \(index + 1) contrast")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @Test func lookKeepsCaptionsArrangementsAndDevice() throws {
+        var document = ShotDocument()
+        document.style.preset = .pad13
+        document.style.landscape = true
+        document.style.frameStyle = .rounded
+        document.style.finish = "Silver"
+        document.style.imageScale = 0.8
+        document.style.shadow = false
+        document.style.decor.appName = "Tucked"
+        var shot = try fixture("Keep this headline")
+        shot.subtitle = "And this subtitle"; shot.eyebrow = "Library"; shot.badge = "New"; shot.stat = "10k"
+        shot.arrangement = .callout; shot.calloutRegion = .bottom; shot.calloutMarker = .outline
+        shot.composition = .overlay
+        document.shots = [shot]
+        let before = document
+        for look in Look.all {
+            var copy = before
+            copy.apply(look)
+            let kept = copy.shots[0]
+            #expect(kept.headline == shot.headline && kept.subtitle == shot.subtitle && kept.eyebrow == shot.eyebrow, "\(look.name)")
+            #expect(kept.badge == shot.badge && kept.stat == shot.stat, "\(look.name)")
+            #expect(kept.arrangement == .callout && kept.calloutRegion == .bottom && kept.calloutMarker == .outline, "\(look.name)")
+            #expect(kept.composition == nil, "\(look.name) clears the shot's own composition")
+            let s = copy.style
+            #expect(s.preset == .pad13 && s.landscape && s.frameStyle == .rounded && s.finish == "Silver", "\(look.name)")
+            #expect(s.imageScale == 0.8 && !s.shadow && s.decor.appName == "Tucked", "\(look.name)")
+        }
+    }
+
+    @Test func lookApplyIsOneDocumentChange() throws {
+        var document = ShotDocument()
+        document.shots = [try fixture()]
+        let before = document
+        let look = try #require(Look.all.first { $0.name == "Editorial" })
+        // SwiftUI records one undo step per document change; `apply` is one mutating call, so Undo restores `before`.
+        document.apply(look)
+        #expect(document.style != before.style)
+        #expect(document.style == look.styled(before.style))
+    }
+
+    @Test func lookMatchesOnlyItsOwnOutput() throws {
+        let base = SetStyle()
+        for look in Look.all {
+            let styled = look.styled(base)
+            #expect(look.matches(styled), "\(look.name)")
+            for other in Look.all where other != look { #expect(!other.matches(styled), "\(other.name) on \(look.name)") }
+            var edited = styled
+            edited.textSize = .large
+            #expect(!look.matches(edited), "\(look.name) loses its mark after a change")
+        }
+        #expect(!Look.all.contains { $0.matches(base) }, "the default style is no look")
+    }
+
     @Test func decorRoundTrips() throws {
         var document = ShotDocument()
         document.style.decor.eyebrow = .numbered

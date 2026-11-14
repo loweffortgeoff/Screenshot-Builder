@@ -55,6 +55,15 @@ struct Theme: Identifiable, Equatable {
         make("Rose", .mesh, [0xFFDDE1, 0xEE9CA7, 0xFFC3A0], text: 0x4A1022, accent: 0x9A1446),
         make("Sky", .linear, [0xC2E9FB, 0xA1C4FD], angle: 100, text: 0x0B2545, accent: 0x1D4ED8),
         make("Lavender", .solid, [0xEFEAFB], text: 0x2A1A40, accent: 0x7C4DFF),
-        make("Paper", .solid, [0xF5F2EB], text: 0x1F1B16, accent: 0xD9480F)
+        make("Paper", .solid, [0xF5F2EB], text: 0x1F1B16, accent: 0xD9480F),
+        // One theme per starter look (chapter 4).
+        make("Violet", .solid, [0x0E0C14], text: 0xFFFFFF, accent: 0xA78BFA),
+        make("Coral", .radial, [0x2E2724, 0x141110], text: 0xFFFFFF, accent: 0xFF7A6B),
+        make("Ember", .mesh, [0x1C1410, 0x4A2E1A, 0x2E1A24], text: 0xF5EDE3, accent: 0xE8A54B),
+        make("Field", .solid, [0x1E241C], text: 0xF2F2EC, accent: 0xB5E06B),
+        make("Amber", .solid, [0x0D0D0F], text: 0xFFFFFF, accent: 0xF5A524),
+        make("Mist", .solid, [0xE8F1FA], text: 0x16324F, accent: 0x2F6FD6)
     ]
+
+    static func named(_ name: String) -> Theme? { all.first { $0.name == name } }
 }

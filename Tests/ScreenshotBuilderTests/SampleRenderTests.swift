@@ -89,6 +89,10 @@ struct SampleRenderTests {
            let value = CaptionComposition.allCases.first(where: { raw == $0.rawValue || raw.lowercased() == "\($0)".lowercased() }) {
             document.style.composition = value
         }
+        // SB_LOOK: a starter look by name (Orb, Bokeh, Editorial, Scoreboard, Rays, Calm). Later knobs override it.
+        if let name = env["SB_LOOK"], let look = Look.all.first(where: { $0.name.lowercased() == name.lowercased() }) {
+            document.apply(look)
+        }
         // Decorations: SB_EYEBROW (an EyebrowMode raw value or case name), SB_APPNAME, SB_SECTIONS="1:Spending,3:Trips",
         // SB_RULE=1, SB_SHAPES=1, SB_MONO=1.
         if let raw = env["SB_EYEBROW"],

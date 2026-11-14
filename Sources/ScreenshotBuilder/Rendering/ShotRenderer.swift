@@ -1410,7 +1410,7 @@ enum ShotRenderer {
             ]
             let light = style.foreground.nsColor.cgColor
             for (fx, fy, fr, useAccent) in patterns[index % patterns.count] {
-                soft(useAccent ? accent : light, alpha: useAccent ? 0.30 : 0.14,
+                soft(useAccent ? accent : light, alpha: useAccent ? 0.40 : 0.14,
                      at: CGPoint(x: size.width * fx, y: size.height * fy), radius: size.width * fr)
             }
         case .arcs:
