@@ -147,8 +147,13 @@ enum ShotRenderer {
             device = frame
             // Captures keep their proportions; a mismatched capture sits on black glass.
             let content = frame.contentRect
-            let mismatch = abs(sourceSize.width / sourceSize.height - content.width / content.height) / (content.width / content.height)
-            if spec.family == .laptop && mismatch > 0.03 {
+            func mismatch(_ box: CGRect) -> CGFloat {
+                abs(sourceSize.width / sourceSize.height - box.width / box.height) / (box.width / box.height)
+            }
+            if spec.family == .laptop && mismatch(frame.screenRect) <= 0.01 {
+                // A native full-display capture (menu bar included): fill the opening; the notch covers the menu bar.
+                rect = Self.fit(sourceSize, in: frame.screenRect)
+            } else if spec.family == .laptop && mismatch(content) > 0.03 {
                 // A window capture, not a full-screen one: float it on a wallpaper with room around it.
                 windowed = true
                 rect = Self.fit(sourceSize, in: content.insetBy(dx: content.width * 0.07, dy: content.height * 0.08))

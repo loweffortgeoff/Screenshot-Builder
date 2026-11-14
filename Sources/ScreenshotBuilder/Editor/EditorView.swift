@@ -163,6 +163,9 @@ struct EditorView: View {
 
     /// Composed thumbnails for the sidebar and filmstrip. Re-renders when the set or style changes.
     private func renderThumbnails() async {
+        // Wait out a burst of typing; a newer edit cancels this task before it renders anything.
+        try? await Task.sleep(for: .milliseconds(200))
+        if Task.isCancelled { return }
         let shots = document.shots, style = document.style
         let band = ShotRenderer.captionBand(shots: shots, style: style)
         var rendered: [UUID: NSImage] = [:]

@@ -337,4 +337,25 @@ struct BuilderTests {
         let decoded = try JSONDecoder().decode(Shot.self, from: JSONSerialization.data(withJSONObject: json))
         #expect(decoded.accents.isEmpty && decoded.headline == shot.headline)
     }
+
+    @Test func macCapturesFillOrFloatByAspect() throws {
+        var style = SetStyle()
+        style.preset = .mac
+        let shot = try fixture()
+        // Native full-display capture: fills the whole opening.
+        let native = ShotRenderer.compose(shot: shot, style: style, sourceSize: CGSize(width: 2560, height: 1664))
+        let screen = try #require(native.device?.screenRect)
+        #expect(!native.windowed)
+        #expect(abs(native.imageRect.width - screen.width) < 0.5 && abs(native.imageRect.height - screen.height) < 0.5)
+        // A 16:10 capture fills the area below the notch.
+        let below = ShotRenderer.compose(shot: shot, style: style, sourceSize: CGSize(width: 2560, height: 1600))
+        let content = try #require(below.device?.contentRect)
+        #expect(!below.windowed)
+        #expect(abs(below.imageRect.width - content.width) < 0.5)
+        // A window capture floats on the wallpaper with margins.
+        let window = ShotRenderer.compose(shot: shot, style: style, sourceSize: CGSize(width: 1140, height: 780))
+        #expect(window.windowed)
+        #expect(content.insetBy(dx: 1, dy: 1).contains(window.imageRect))
+        #expect(window.imageRect.width < content.width * 0.9)
+    }
 }
