@@ -1,14 +1,16 @@
 #!/bin/zsh
 # Opens a .shotset in the built app and captures its window to a PNG.
 # Needs Screen Recording permission for the calling process.
-# Usage: scripts/capture-window.sh <project.shotset> <output.png>
+# Usage: scripts/capture-window.sh <project.shotset> <output.png> [app arguments]
+# App arguments open a view without clicks, for example `-SBInspectorTab Caption` or `-SBCanvasMode set`.
 set -euo pipefail
 cd "${0:A:h}/.."
 project="${1:?project path}"
 output="${2:?output png}"
+shift 2
 app="$PWD/build/Screenshot Builder.app"
 pkill -x ScreenshotBuilder 2>/dev/null || true
-open -n -a "$app" "$project"
+open -n -a "$app" "$project" --args "$@"
 for _ in {1..40}; do
   id=$(swift scripts/window-id.swift "${project:t}" 2>/dev/null || true)
   [[ -n "$id" ]] && break
