@@ -33,6 +33,8 @@ struct PreviewPane: View {
     @State private var draftStart = ""
     @FocusState private var editorFocused: Bool
     @State private var drag: (target: DragTarget, translation: CGSize)?
+    /// The Zoom part under the pointer, for the hover cues and cursor.
+    @State private var hover: DragTarget?
 
     private static let margin: CGFloat = 24
     private static let footer: CGFloat = 22
@@ -100,7 +102,8 @@ struct PreviewPane: View {
         .overlay(alignment: .topLeading) { overlays(shot: shot, layout: layout, scale: scale) }
         .shadow(color: .black.opacity(0.28), radius: 18, y: 8)
         .accessibilityLabel("Screenshot preview. \(shot.headline.replacingOccurrences(of: "*", with: "")). \(shot.subtitle)")
-        .accessibilityHint("Double-click the headline, subtitle, or badge to edit it.")
+        .accessibilityHint(layout?.callout == nil ? "Double-click the headline, subtitle, or badge to edit it."
+                           : "Double-click the headline, subtitle, or badge to edit it. Drag the Zoom handle or the card to move them.")
         .onTapGesture(count: 2) { location in
             let point = CGPoint(x: location.x / scale, y: location.y / scale)
             guard let layout, style.layout.hasCaption else { return }
@@ -114,18 +117,35 @@ struct PreviewPane: View {
             if editing != nil { commitEdit(shot: shot); return }
             if layout?.layers.contains(where: { $0.bounds.contains(point) }) == true { showArrangement() }
         }
+        // The ring and card say they can move: an open hand over them, a closed hand while dragging.
+        .onContinuousHover { phase in
+            guard case .active(let location) = phase, editing == nil, let callout = layout?.callout else {
+                if hover != nil {
+                    hover = nil
+                    if #unavailable(macOS 15) { NSCursor.arrow.set() }
+                }
+                return
+            }
+            let target = calloutTarget(at: CGPoint(x: location.x / scale, y: location.y / scale), callout: callout, scale: scale)
+            if target != hover { hover = target }
+            if #unavailable(macOS 15) { (target == nil ? NSCursor.arrow : drag == nil ? NSCursor.openHand : NSCursor.closedHand).set() }
+        }
+        .modifier(GrabPointer(active: hover != nil || drag != nil, grabbing: drag != nil))
         .gesture(DragGesture(minimumDistance: 3)
             .onChanged { value in
                 guard let callout = layout?.callout, editing == nil else { return }
                 if drag == nil {
                     let start = CGPoint(x: value.startLocation.x / scale, y: value.startLocation.y / scale)
-                    if callout.rect.contains(start) { drag = (.card, .zero) } else if callout.highlight.contains(start) { drag = (.ring, .zero) } else { return }
+                    guard let target = calloutTarget(at: start, callout: callout, scale: scale) else { return }
+                    drag = (target, .zero)
+                    if #unavailable(macOS 15) { NSCursor.closedHand.set() }
                 }
                 drag?.translation = CGSize(width: value.translation.width / scale, height: value.translation.height / scale)
             }
             .onEnded { _ in
                 guard let drag, let callout = layout?.callout else { return }
                 self.drag = nil
+                if #unavailable(macOS 15) { NSCursor.openHand.set() }
                 finishDrag(drag.target, by: drag.translation, callout: callout, shot: shot)
             })
         .simultaneousGesture(MagnifyGesture()
@@ -156,8 +176,54 @@ struct PreviewPane: View {
                                     captionBand: captionBand, companionSize: companionSize)
     }
 
+    /// The ring's move handle sits on its top-leading corner, in canvas pixels.
+    private static let handlePoints: CGFloat = 26
+
+    /// What a press at `point` (canvas pixels) would drag: the card first, then the ring or its handle.
+    private func calloutTarget(at point: CGPoint, callout: ShotRenderer.Callout, scale: CGFloat) -> DragTarget? {
+        if callout.rect.contains(point) { return .card }
+        let corner = CGPoint(x: callout.highlight.minX, y: callout.highlight.minY)
+        let reach = (Self.handlePoints / 2 + 4) / scale
+        if callout.highlight.contains(point) || hypot(point.x - corner.x, point.y - corner.y) <= reach { return .ring }
+        return nil
+    }
+
+    /// Editor-only cues for the Zoom ring: a move handle, and on hover a dashed outline with a hint. Never exported.
+    private func calloutCues(_ callout: ShotRenderer.Callout, scale: CGFloat) -> some View {
+        let ring = callout.highlight
+        // An explicit top-leading stack: an implicit one centers each cue in the widest one, which moves them.
+        return ZStack(alignment: .topLeading) {
+        if hover == .ring {
+            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                .strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
+                .frame(width: ring.width * scale, height: ring.height * scale)
+                .offset(x: ring.minX * scale, y: ring.minY * scale)
+        }
+        if hover != nil {
+            Text(hover == .ring ? "Drag to choose what Zoom shows" : "Drag to move the card")
+                .font(.caption.weight(.semibold)).foregroundStyle(.white)
+                .padding(.horizontal, 8).padding(.vertical, 4)
+                .background(Color.accentColor, in: Capsule())
+                .fixedSize()
+                .offset(x: ring.minX * scale + Self.handlePoints / 2 + 6, y: ring.minY * scale - Self.handlePoints / 2 - 2)
+        }
+        Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
+            .font(.system(size: 11, weight: .bold)).foregroundStyle(.white)
+            .frame(width: Self.handlePoints, height: Self.handlePoints)
+            .background(Color.accentColor, in: Circle())
+            .overlay(Circle().strokeBorder(.white, lineWidth: 2))
+            .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
+            .scaleEffect(hover == .ring ? 1.12 : 1)
+            .offset(x: ring.minX * scale - Self.handlePoints / 2, y: ring.minY * scale - Self.handlePoints / 2)
+            .accessibilityLabel("Zoom area handle. Drag to choose what Zoom shows.")
+        }
+    }
+
     @ViewBuilder
     private func overlays(shot: Shot, layout: ShotRenderer.Composition?, scale: CGFloat) -> some View {
+        if drag == nil, editing == nil, let callout = layout?.callout {
+            calloutCues(callout, scale: scale).allowsHitTesting(false)
+        }
         if let drag, let callout = layout?.callout {
             let source = drag.target == .card ? callout.rect : callout.highlight
             let moved = source.offsetBy(dx: drag.translation.width, dy: drag.translation.height)
@@ -355,6 +421,20 @@ enum CanvasText {
 private struct NoWritingTools: ViewModifier {
     func body(content: Content) -> some View {
         if #available(macOS 15.0, *) { content.writingToolsBehavior(.disabled) } else { content }
+    }
+}
+
+/// An open hand over a movable Zoom part and a closed hand while dragging it (macOS 15 and later; earlier systems
+/// set `NSCursor` from the hover handler).
+private struct GrabPointer: ViewModifier {
+    let active: Bool
+    let grabbing: Bool
+    func body(content: Content) -> some View {
+        if #available(macOS 15.0, *) {
+            content.pointerStyle(active ? (grabbing ? .grabActive : .grabIdle) : nil)
+        } else {
+            content
+        }
     }
 }
 
