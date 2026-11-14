@@ -99,6 +99,12 @@ struct SampleRenderTests {
         if env["SB_RULE"] == "1" { document.style.decor.rule = true }
         if env["SB_SHAPES"] == "1" { document.style.decor.shapes = true }
         if env["SB_MONO"] == "1" { document.style.decor.monoEyebrow = true }
+        // Backdrop: SB_BACKDROP (a BackdropKind raw value or case name), SB_HUESHIFT=1.
+        if let raw = env["SB_BACKDROP"],
+           let value = BackdropKind.allCases.first(where: { raw == $0.rawValue || raw.lowercased() == "\($0)".lowercased() }) {
+            document.style.backdrop.kind = value
+        }
+        if env["SB_HUESHIFT"] == "1" { document.style.backdrop.hueShift = true }
         for item in (env["SB_SECTIONS"] ?? "").split(separator: ",") {
             let parts = item.split(separator: ":", maxSplits: 1)
             if parts.count == 2, let n = Int(parts[0]), document.shots.indices.contains(n - 1) {

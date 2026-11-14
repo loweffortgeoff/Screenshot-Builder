@@ -959,16 +959,8 @@ enum ShotRenderer {
 
     // MARK: Contrast
 
-    private static func luminance(_ c: RGBColor) -> Double {
-        func channel(_ v: Double) -> Double { v <= 0.03928 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4) }
-        return 0.2126 * channel(c.red) + 0.7152 * channel(c.green) + 0.0722 * channel(c.blue)
-    }
-
     /// WCAG contrast ratio of two colors.
-    static func contrastRatio(_ a: RGBColor, _ b: RGBColor) -> Double {
-        let (l1, l2) = (luminance(a), luminance(b))
-        return (max(l1, l2) + 0.05) / (min(l1, l2) + 0.05)
-    }
+    static func contrastRatio(_ a: RGBColor, _ b: RGBColor) -> Double { RGBColor.contrastRatio(a, b) }
 
     /// How opaque the Overlay band's background color is, over the blurred capture.
     static let overlayBandOpacity: CGFloat = 0.75
@@ -1028,11 +1020,14 @@ enum ShotRenderer {
         cg.scaleBy(x: CGFloat(width) / size.width, y: -CGFloat(height) / size.height)
         // Pinned rule (R3.4): iPad-family presets get 20% stronger glows in any orientation.
         let glowBoost: CGFloat = DeviceSpec.for(style.preset).family == .pad ? 1.2 : 1
-        drawBackground(style.background, in: cg, size: size, position: style.spanSet ? position : .single, glowBoost: glowBoost)
+        // Hue shift turns this shot's background; the stored style keeps its colors.
+        let fill = style.background(at: position.index, of: position.count)
+        drawBackground(fill, in: cg, size: size, position: style.spanSet ? position : .single, glowBoost: glowBoost)
         if style.grain && style.background.kind != .solid { drawGrain(in: cg, size: size) }
         let companionSize = companion?.cgImage.map { CGSize(width: $0.width, height: $0.height) }
         let composition = compose(shot: shot, style: style, sourceSize: CGSize(width: source.width, height: source.height),
                                   captionBand: captionBand, companionSize: companionSize)
+        drawBackdrop(style.backdrop.kind, composition: composition, style: style, in: cg, size: size, index: position.index)
         for shape in composition.shapes {
             let radius = shape.kind == .pill ? shape.rect.height / 2 : shape.rect.height * 0.28
             cg.addPath(CGPath(roundedRect: shape.rect, cornerWidth: radius, cornerHeight: radius, transform: nil))
@@ -1126,7 +1121,9 @@ enum ShotRenderer {
         // AppKit text drawing needs the flipped context flag as well as the transform.
         NSGraphicsContext.current = NSGraphicsContext(cgContext: cg, flipped: true)
         if let panel = composition.panel {
-            drawFrostedPanel(panel, in: cg, style: style, size: size, position: style.spanSet ? position : .single,
+            var panelStyle = style
+            panelStyle.background = fill
+            drawFrostedPanel(panel, in: cg, style: panelStyle, size: size, position: style.spanSet ? position : .single,
                              glowBoost: glowBoost, unit: unit, pixelScale: pixelScale)
         }
         if style.layout.hasCaption, let badge = composition.badge {
@@ -1362,6 +1359,87 @@ enum ShotRenderer {
                     glow(tone.copy(alpha: min(1, (index == 0 ? 0.7 : 0.9) * glowBoost)) ?? tone,
                          at: CGPoint(x: x + size.width * fx, y: size.height * fy), radius: reach * radius)
                 }
+            }
+        }
+    }
+
+    /// The backdrop layer, drawn over the background and under everything else. It is placed against the device group
+    /// (the canvas middle for Text only) and kept off the caption where it is solid. Arcs and rays stay at or under 25%.
+    static func drawBackdrop(_ kind: BackdropKind, composition c: Composition, style: SetStyle, in cg: CGContext, size: CGSize,
+                             index: Int) {
+        guard kind != .none, let space = CGColorSpace(name: CGColorSpace.sRGB) else { return }
+        let canvas = CGRect(origin: .zero, size: size)
+        let unit = min(size.width, size.height)
+        let anchor = c.layers.map(\.bounds).reduce(nil) { (acc: CGRect?, r) in acc.map { $0.union(r) } ?? r }?.intersection(canvas)
+            ?? canvas.insetBy(dx: size.width * 0.2, dy: size.height * 0.3)
+        let captionParts = [c.eyebrowRect, c.badgeRect, c.statRect, c.headlineRect, c.subtitleRect].filter { $0.width > 0 && $0.height > 0 }
+        let caption = captionParts.reduce(nil) { (acc: CGRect?, r) in acc.map { $0.union(r) } ?? r }
+        // The side the caption starts on; the layer leans the other way.
+        let captionOnRight = caption.map { $0.minX > size.width * 0.4 } ?? false
+        let accent = style.accent.nsColor.cgColor
+        cg.saveGState()
+        defer { cg.restoreGState() }
+        cg.clip(to: canvas)
+        func soft(_ color: CGColor, alpha: CGFloat, at center: CGPoint, radius: CGFloat) {
+            guard let g = CGGradient(colorsSpace: space, colors: [color.copy(alpha: alpha) ?? color, color.copy(alpha: 0) ?? color] as CFArray,
+                                     locations: [0.55, 1]) else { return }
+            cg.drawRadialGradient(g, startCenter: center, startRadius: 0, endCenter: center, endRadius: radius, options: [])
+        }
+        switch kind {
+        case .none:
+            break
+        case .orb:
+            // One large accent circle behind the device's upper edge, on the side away from the caption, below it.
+            let radius = size.width * 0.42
+            var center = CGPoint(x: captionOnRight ? size.width * 0.08 : size.width * 0.92, y: anchor.minY + size.height * 0.08)
+            if let caption {
+                let clearance = unit * 0.03
+                let circle = CGRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2)
+                if circle.intersects(caption.insetBy(dx: -clearance, dy: -clearance)) {
+                    center.y = caption.midY < anchor.midY ? caption.maxY + clearance + radius : caption.minY - clearance - radius
+                }
+            }
+            cg.setFillColor(accent.copy(alpha: 0.9) ?? accent)
+            cg.fillEllipse(in: CGRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2))
+        case .bokeh:
+            // Soft discs in the lower part of the canvas, away from the caption. Each shot in a set takes a different pattern.
+            let patterns: [[(CGFloat, CGFloat, CGFloat, Bool)]] = [
+                [(0.86, 0.42, 0.30, true), (0.12, 0.70, 0.24, false), (0.70, 0.92, 0.26, true), (0.30, 0.38, 0.14, false)],
+                [(0.14, 0.46, 0.28, true), (0.88, 0.66, 0.24, false), (0.40, 0.95, 0.30, true), (0.78, 0.36, 0.13, false)],
+                [(0.80, 0.55, 0.32, true), (0.20, 0.88, 0.26, true), (0.10, 0.40, 0.16, false), (0.62, 0.80, 0.18, false)]
+            ]
+            let light = style.foreground.nsColor.cgColor
+            for (fx, fy, fr, useAccent) in patterns[index % patterns.count] {
+                soft(useAccent ? accent : light, alpha: useAccent ? 0.30 : 0.14,
+                     at: CGPoint(x: size.width * fx, y: size.height * fy), radius: size.width * fr)
+            }
+        case .arcs:
+            // Thin concentric arcs from the top corner away from where the caption starts.
+            let center = CGPoint(x: captionOnRight ? 0 : size.width, y: 0)
+            cg.setStrokeColor(accent.copy(alpha: 0.25) ?? accent)
+            cg.setLineWidth(max(1, unit * 0.005))
+            for step in 0..<4 {
+                let radius = size.width * (0.62 + CGFloat(step) * 0.2)
+                cg.addEllipse(in: CGRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2))
+                cg.strokePath()
+            }
+        case .rays:
+            // Thin wedges radiating from behind the device, fading out with distance.
+            let origin = CGPoint(x: anchor.midX, y: anchor.minY + anchor.height * 0.3)
+            let reach = hypot(size.width, size.height)
+            let count = 16
+            for ray in 0..<count {
+                let start = (CGFloat(ray) / CGFloat(count)) * 2 * .pi
+                let end = start + 2 * .pi / CGFloat(count) * 0.4
+                cg.move(to: origin)
+                cg.addLine(to: CGPoint(x: origin.x + cos(start) * reach, y: origin.y + sin(start) * reach))
+                cg.addLine(to: CGPoint(x: origin.x + cos(end) * reach, y: origin.y + sin(end) * reach))
+                cg.closePath()
+            }
+            cg.clip()
+            if let g = CGGradient(colorsSpace: space, colors: [accent.copy(alpha: 0.24) ?? accent, accent.copy(alpha: 0) ?? accent] as CFArray,
+                                  locations: [0, 1]) {
+                cg.drawRadialGradient(g, startCenter: origin, startRadius: 0, endCenter: origin, endRadius: reach * 0.75, options: [])
             }
         }
     }

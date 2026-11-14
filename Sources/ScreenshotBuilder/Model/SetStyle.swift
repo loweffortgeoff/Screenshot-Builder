@@ -171,6 +171,29 @@ struct RGBColor: Codable, Equatable {
         self.init(rgb.redComponent, rgb.greenComponent, rgb.blueComponent)
     }
     var isValid: Bool { [red, green, blue].allSatisfy { $0.isFinite && (0...1).contains($0) } }
+
+    /// WCAG relative luminance.
+    var luminance: Double {
+        func channel(_ v: Double) -> Double { v <= 0.03928 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4) }
+        return 0.2126 * channel(red) + 0.7152 * channel(green) + 0.0722 * channel(blue)
+    }
+
+    /// WCAG contrast ratio of two colors.
+    static func contrastRatio(_ a: RGBColor, _ b: RGBColor) -> Double {
+        let (l1, l2) = (a.luminance, b.luminance)
+        return (max(l1, l2) + 0.05) / (min(l1, l2) + 0.05)
+    }
+
+    /// The same color with its hue turned by `degrees`, saturation and brightness kept.
+    func rotatingHue(by degrees: Double) -> RGBColor {
+        guard degrees != 0 else { return self }
+        let color = nsColor
+        var hue = color.hueComponent + CGFloat(degrees / 360)
+        hue -= floor(hue)
+        let turned = NSColor(colorSpace: .sRGB, hue: hue, saturation: color.saturationComponent,
+                             brightness: color.brightnessComponent, alpha: 1)
+        return RGBColor(turned.redComponent, turned.greenComponent, turned.blueComponent)
+    }
 }
 
 /// What the small label above the headline says.
@@ -216,6 +239,26 @@ struct Decor: Codable, Equatable {
     }
 }
 
+/// One decorative layer between the background and the device. The layout places it.
+enum BackdropKind: String, Codable, CaseIterable, Identifiable {
+    case none = "None", orb = "Orb", bokeh = "Bokeh", arcs = "Arcs", rays = "Rays"
+    var id: Self { self }
+}
+
+struct Backdrop: Codable, Equatable {
+    var kind: BackdropKind = .none
+    /// Each shot turns the background hue a step further across the set. Ignored while the background spans the set.
+    var hueShift = false
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        kind = try c.decodeIfPresent(BackdropKind.self, forKey: .kind) ?? .none
+        hueShift = try c.decodeIfPresent(Bool.self, forKey: .hueShift) ?? false
+    }
+}
+
 struct SetStyle: Codable, Equatable {
     var preset: OutputPreset = .phone69
     var landscape = false
@@ -240,12 +283,33 @@ struct SetStyle: Codable, Equatable {
     /// Fine film grain over gradient backgrounds.
     var grain = true
     var decor = Decor()
+    var backdrop = Backdrop()
 
     var size: CGSize {
         let base = preset.size
         return landscape && preset != .mac ? CGSize(width: base.height, height: base.width) : base
     }
     var dimensionLabel: String { "\(Int(size.width)) × \(Int(size.height))" }
+
+    /// Hue shift applies only while the background does not span the set, where it would break the seams.
+    var shiftsHue: Bool { backdrop.hueShift && !spanSet }
+
+    /// The background shot `index` of `count` draws. With hue shift, each stop turns by (index − middle) × 10°, at most
+    /// ±30°, stepping back 5° at a time until the text and accent still pass 3:1 on every stop. Stored colors never change.
+    func background(at index: Int, of count: Int) -> Background {
+        guard shiftsHue, count > 1 else { return background }
+        let wanted = max(-30, min(30, (Double(index) - Double(count - 1) / 2) * 10))
+        var degrees = wanted
+        while true {
+            var shifted = background
+            shifted.colors = background.colors.map { $0.rotatingHue(by: degrees) }
+            let readable = shifted.colors.allSatisfy { stop in
+                [foreground, accent].allSatisfy { RGBColor.contrastRatio($0, stop) >= 3 }
+            }
+            if readable || degrees == 0 { return readable ? shifted : background }
+            degrees -= degrees > 0 ? min(5, degrees) : max(-5, degrees)
+        }
+    }
 
     /// A phone-shaped preset held upright.
     var isPortraitPhone: Bool {
@@ -339,5 +403,6 @@ struct SetStyle: Codable, Equatable {
         spanSet = try c.decodeIfPresent(Bool.self, forKey: .spanSet) ?? d.spanSet
         grain = try c.decodeIfPresent(Bool.self, forKey: .grain) ?? false
         decor = try c.decodeIfPresent(Decor.self, forKey: .decor) ?? Decor()
+        backdrop = try c.decodeIfPresent(Backdrop.self, forKey: .backdrop) ?? Backdrop()
     }
 }

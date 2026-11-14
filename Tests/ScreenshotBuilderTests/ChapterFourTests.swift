@@ -169,6 +169,116 @@ struct ChapterFourTests {
         #expect(loaded.style.decor == Decor() && loaded.shots[0].eyebrow == "")
     }
 
+    // MARK: Backdrops and hue shift
+
+    /// Draws only the background and the backdrop, at `scale`, and returns the RGBA bytes (row 0 is the canvas top).
+    private func backdropPixels(_ style: SetStyle, composition: ShotRenderer.Composition, index: Int, count: Int,
+                                scale: CGFloat) throws -> (bytes: [UInt8], width: Int, height: Int) {
+        let width = Int(style.size.width * scale), height = Int(style.size.height * scale)
+        var bytes = [UInt8](repeating: 0, count: width * height * 4)
+        let cg = try #require(CGContext(data: &bytes, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                                        space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        cg.translateBy(x: 0, y: CGFloat(height))
+        cg.scaleBy(x: scale, y: -scale)
+        ShotRenderer.drawBackground(style.background(at: index, of: count), in: cg, size: style.size, position: .single)
+        ShotRenderer.drawBackdrop(style.backdrop.kind, composition: composition, style: style, in: cg, size: style.size, index: index)
+        return (bytes, width, height)
+    }
+
+    @Test func backdropsKeepCaptionsReadable() throws {
+        let scale: CGFloat = 0.25
+        for themeName in ["Ocean", "Noir", "Sky", "Sunset", "Graphite", "Paper"] {
+            let theme = try #require(Theme.all.first { $0.name == themeName })
+            for kind in BackdropKind.allCases where kind != .none {
+                for layout in [CaptionLayout.above, .bleedBottom, .below] {
+                    for alignment in CaptionAlignment.allCases {
+                        var style = SetStyle()
+                        style.apply(theme)
+                        style.layout = layout; style.alignment = alignment
+                        style.backdrop.kind = kind
+                        style.decor.eyebrow = .appName; style.decor.appName = "App"
+                        let shots = try (0..<3).map { _ in try fixture("Every detail, one tap away") }
+                        let band = ShotRenderer.captionBand(shots: shots, style: style)
+                        for (index, shot) in shots.enumerated() {
+                            let c = ShotRenderer.compose(shot: shot, style: style, sourceSize: phoneSource, captionBand: band)
+                            let pixels = try backdropPixels(style, composition: c, index: index, count: shots.count, scale: scale)
+                            let label = "\(themeName) \(kind) \(layout) \(alignment) shot \(index + 1)"
+                            var worst = Double.infinity
+                            for rect in [c.eyebrowRect, c.headlineRect, c.subtitleRect] where rect.width > 0 {
+                                for fx in stride(from: 0.02, through: 0.98, by: 0.08) {
+                                    for fy in stride(from: 0.1, through: 0.9, by: 0.2) {
+                                        let x = min(pixels.width - 1, Int((rect.minX + rect.width * fx) * scale))
+                                        let y = min(pixels.height - 1, Int((rect.minY + rect.height * fy) * scale))
+                                        let i = (y * pixels.width + x) * 4
+                                        let color = RGBColor(Double(pixels.bytes[i]) / 255, Double(pixels.bytes[i + 1]) / 255,
+                                                             Double(pixels.bytes[i + 2]) / 255)
+                                        worst = min(worst, RGBColor.contrastRatio(style.foreground, color))
+                                    }
+                                }
+                            }
+                            #expect(worst >= 3, "\(label) contrast \(worst)")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @Test func hueShiftLeavesStoredStyleUnchanged() throws {
+        var style = SetStyle()
+        let sunset = try #require(Theme.all.first { $0.name == "Sunset" })
+        style.apply(sunset)
+        style.backdrop.hueShift = true
+        let stored = style
+        #expect(style.background(at: 2, of: 5) == style.background, "the middle shot keeps the stored hue")
+        #expect(style.background(at: 0, of: 5) != style.background && style.background(at: 4, of: 5) != style.background)
+        #expect(style.background(at: 0, of: 5) != style.background(at: 4, of: 5), "the ends turn opposite ways")
+        #expect(style == stored && style.theme == sunset, "stored colors and the theme match stay as they were")
+        #expect(style.background(at: 0, of: 1) == style.background, "a single shot has nothing to step through")
+    }
+
+    @Test func hueShiftedShotsPassContrast() throws {
+        for theme in Theme.all {
+            var style = SetStyle()
+            style.apply(theme)
+            style.backdrop.hueShift = true
+            for count in [2, 5, 10] {
+                for index in 0..<count {
+                    for stop in style.background(at: index, of: count).colors {
+                        #expect(RGBColor.contrastRatio(style.foreground, stop) >= 3 && RGBColor.contrastRatio(style.accent, stop) >= 3,
+                                "\(theme.name) shot \(index + 1) of \(count)")
+                    }
+                }
+            }
+        }
+    }
+
+    @Test func spanSetDisablesHueShift() throws {
+        var style = SetStyle()
+        style.apply(try #require(Theme.all.first { $0.name == "Sunset" }))
+        style.backdrop.hueShift = true
+        style.spanSet = true
+        #expect(!style.shiftsHue)
+        for index in 0..<5 { #expect(style.background(at: index, of: 5) == style.background) }
+    }
+
+    @Test func backdropDecodesWithDefaultsAndRoundTrips() throws {
+        var document = ShotDocument()
+        document.style.backdrop.kind = .rays
+        document.style.backdrop.hueShift = true
+        document.shots = [try fixture()]
+        let loaded = try ShotDocument.decode(JSONEncoder().encode(document))
+        #expect(loaded.style.backdrop == document.style.backdrop)
+        var json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(document)) as! [String: Any]
+        json["version"] = 4
+        var style = json["style"] as! [String: Any]
+        style.removeValue(forKey: "backdrop")
+        json["style"] = style
+        let old = try ShotDocument.decode(JSONSerialization.data(withJSONObject: json))
+        #expect(old.style.backdrop == Backdrop())
+    }
+
     @Test func decorRoundTrips() throws {
         var document = ShotDocument()
         document.style.decor.eyebrow = .numbered
