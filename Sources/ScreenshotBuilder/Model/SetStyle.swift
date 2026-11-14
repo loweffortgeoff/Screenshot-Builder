@@ -37,13 +37,54 @@ struct SetStyle: Codable, Equatable {
     var landscape = false
     var layout: CaptionLayout = .above
     var font: CaptionFont = .rounded
-    var background = RGBColor(0.94, 0.92, 0.98)
-    var foreground = RGBColor(0.16, 0.10, 0.25)
+    var background = Theme.all[1].background
+    var foreground = Theme.all[1].foreground
+    var accent = Theme.all[1].accent
     var imageScale = 0.94
     var frame = false
+    /// Soft shadow under the screenshot or device.
+    var shadow = true
+    /// Gradients run across the whole set, so neighbouring shots join up.
+    var spanSet = false
+
     var size: CGSize {
         let base = preset.size
         return landscape && preset != .mac ? CGSize(width: base.height, height: base.width) : base
     }
     var dimensionLabel: String { "\(Int(size.width)) × \(Int(size.height))" }
+
+    /// The theme this style matches exactly, if any.
+    var theme: Theme? {
+        Theme.all.first { $0.background == background && $0.foreground == foreground && $0.accent == accent }
+    }
+    mutating func apply(_ theme: Theme) {
+        background = theme.background
+        foreground = theme.foreground
+        accent = theme.accent
+    }
+
+    init() {}
+
+    /// Missing keys fall back to defaults, so version 1 projects still open.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = SetStyle()
+        preset = try c.decodeIfPresent(OutputPreset.self, forKey: .preset) ?? d.preset
+        landscape = try c.decodeIfPresent(Bool.self, forKey: .landscape) ?? d.landscape
+        layout = try c.decodeIfPresent(CaptionLayout.self, forKey: .layout) ?? d.layout
+        font = try c.decodeIfPresent(CaptionFont.self, forKey: .font) ?? d.font
+        if let fill = try? c.decode(Background.self, forKey: .background) {
+            background = fill
+        } else if let legacy = try c.decodeIfPresent(RGBColor.self, forKey: .background) {
+            background = .solid(legacy) // Version 1 stored one solid color.
+        } else {
+            background = d.background
+        }
+        foreground = try c.decodeIfPresent(RGBColor.self, forKey: .foreground) ?? d.foreground
+        accent = try c.decodeIfPresent(RGBColor.self, forKey: .accent) ?? foreground
+        imageScale = try c.decodeIfPresent(Double.self, forKey: .imageScale) ?? d.imageScale
+        frame = try c.decodeIfPresent(Bool.self, forKey: .frame) ?? d.frame
+        shadow = try c.decodeIfPresent(Bool.self, forKey: .shadow) ?? false
+        spanSet = try c.decodeIfPresent(Bool.self, forKey: .spanSet) ?? d.spanSet
+    }
 }

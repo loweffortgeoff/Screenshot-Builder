@@ -13,7 +13,8 @@ enum SetExporter {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false)
         do {
             for (index, shot) in shots.enumerated() {
-                let bitmap = try ShotRenderer.render(shot: shot, style: style)
+                let bitmap = try ShotRenderer.render(shot: shot, style: style,
+                                                     position: .init(index: index, count: shots.count))
                 guard let png = bitmap.representation(using: .png, properties: [:]) else {
                     throw BuilderError.message("Could not encode shot \(index + 1).")
                 }

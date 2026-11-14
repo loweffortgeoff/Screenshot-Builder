@@ -3,6 +3,13 @@ import AppKit
 /// Preview and export use this exact composition. Coordinates have a top-left origin.
 @MainActor
 enum ShotRenderer {
+    /// Where a shot sits in its set. Spanning backgrounds use it to join neighbouring shots.
+    struct SetPosition: Equatable {
+        var index = 0
+        var count = 1
+        static let single = SetPosition()
+    }
+
     struct Composition {
         var imageRect: CGRect
         var headlineRect: CGRect
@@ -58,7 +65,8 @@ enum ShotRenderer {
         return compose(shot: shot, style: style, sourceSize: CGSize(width: image.width, height: image.height)).warnings
     }
 
-    static func render(shot: Shot, style: SetStyle, maxDimension: CGFloat? = nil) throws -> NSBitmapImageRep {
+    static func render(shot: Shot, style: SetStyle, maxDimension: CGFloat? = nil,
+                       position: SetPosition = .single) throws -> NSBitmapImageRep {
         guard let source = shot.cgImage else { throw BuilderError.message("Cannot read \(shot.name).") }
         let size = style.size
         let scale = maxDimension.map { min(1, $0 / max(size.width, size.height)) } ?? 1
@@ -76,9 +84,22 @@ enum ShotRenderer {
         NSGraphicsContext.current = context
         cg.translateBy(x: 0, y: CGFloat(height))
         cg.scaleBy(x: CGFloat(width) / size.width, y: -CGFloat(height) / size.height)
-        style.background.nsColor.setFill()
-        NSBezierPath(rect: CGRect(origin: .zero, size: size)).fill()
+        drawBackground(style.background, in: cg, size: size, position: style.spanSet ? position : .single)
         let composition = compose(shot: shot, style: style, sourceSize: CGSize(width: source.width, height: source.height))
+        if style.shadow {
+            // Shadow offsets are in device pixels and ignore the flipped transform.
+            let unit = min(size.width, size.height)
+            let pixelScale = CGFloat(width) / size.width
+            let border = style.frame ? unit * 0.014 : 0
+            cg.saveGState()
+            cg.setShadow(offset: CGSize(width: 0, height: -unit * 0.022 * pixelScale), blur: unit * 0.06 * pixelScale,
+                         color: CGColor(gray: 0, alpha: 0.38))
+            cg.setFillColor(CGColor(gray: 0.08, alpha: 1))
+            let outer = composition.imageRect.insetBy(dx: -border, dy: -border)
+            cg.addPath(CGPath(roundedRect: outer, cornerWidth: border * 2, cornerHeight: border * 2, transform: nil))
+            cg.fillPath()
+            cg.restoreGState()
+        }
         if style.frame {
             let border = min(size.width, size.height) * 0.014
             let outer = composition.imageRect.insetBy(dx: -border, dy: -border)
@@ -97,6 +118,57 @@ enum ShotRenderer {
         context.flushGraphics()
         guard let output = cg.makeImage() else { throw BuilderError.message("Could not finish the export image.") }
         return NSBitmapImageRep(cgImage: output)
+    }
+
+    /// Fills the canvas. With a spanning position, the gradient field covers the whole set.
+    static func drawBackground(_ background: Background, in cg: CGContext, size: CGSize, position: SetPosition) {
+        let canvas = CGRect(origin: .zero, size: size)
+        let count = CGFloat(max(1, position.count))
+        let field = CGRect(x: -CGFloat(position.index) * size.width, y: 0, width: size.width * count, height: size.height)
+        let colors = background.colors.map { $0.nsColor.cgColor }
+        cg.saveGState()
+        defer { cg.restoreGState() }
+        cg.clip(to: canvas)
+        cg.setFillColor(background.primary.nsColor.cgColor)
+        cg.fill(canvas)
+        guard colors.count > 1, let space = CGColorSpace(name: CGColorSpace.sRGB) else { return }
+        let extend: CGGradientDrawingOptions = [.drawsBeforeStartLocation, .drawsAfterEndLocation]
+        func gradient(_ stops: [CGColor]) -> CGGradient? { CGGradient(colorsSpace: space, colors: stops as CFArray, locations: nil) }
+        func linear(_ stops: [CGColor]) {
+            let radians = background.angle * .pi / 180
+            let direction = CGPoint(x: cos(radians), y: sin(radians))
+            let half = (abs(field.width * direction.x) + abs(field.height * direction.y)) / 2
+            let start = CGPoint(x: field.midX - direction.x * half, y: field.midY - direction.y * half)
+            let end = CGPoint(x: field.midX + direction.x * half, y: field.midY + direction.y * half)
+            if let g = gradient(stops) { cg.drawLinearGradient(g, start: start, end: end, options: extend) }
+        }
+        func glow(_ color: CGColor, at point: CGPoint, radius: CGFloat) {
+            if let g = gradient([color, color.copy(alpha: 0) ?? color]) {
+                cg.drawRadialGradient(g, startCenter: point, startRadius: 0, endCenter: point, endRadius: radius, options: [])
+            }
+        }
+        switch background.kind {
+        case .solid:
+            break
+        case .linear:
+            linear(colors)
+        case .radial:
+            let center = CGPoint(x: field.midX, y: field.minY + field.height * 0.32)
+            if let g = gradient(colors) {
+                cg.drawRadialGradient(g, startCenter: center, startRadius: 0, endCenter: center,
+                                      endRadius: hypot(size.width, size.height) * 0.75, options: extend)
+            }
+        case .mesh:
+            // A two-stop base with soft glows reads as a mesh gradient without a mesh renderer.
+            linear([colors[0], colors[min(1, colors.count - 1)]])
+            let reach = max(size.width, size.height)
+            let highlight = colors[colors.count - 1]
+            for shot in 0..<Int(count) {
+                let x = field.minX + CGFloat(shot) * size.width
+                glow(highlight, at: CGPoint(x: x + size.width * 0.9, y: size.height * 0.12), radius: reach * 0.55)
+                glow(colors[0], at: CGPoint(x: x + size.width * 0.05, y: size.height * 0.85), radius: reach * 0.45)
+            }
+        }
     }
 
     private static func attributed(_ text: String, style: SetStyle, size: CGFloat, bold: Bool) -> NSAttributedString {

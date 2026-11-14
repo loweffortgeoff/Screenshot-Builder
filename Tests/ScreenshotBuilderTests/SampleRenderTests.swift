@@ -23,6 +23,9 @@ struct SampleRenderTests {
         let out = URL(fileURLWithPath: env["SB_OUT"]!)
         try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
         var document = ShotDocument()
+        // Optional review knobs: SB_THEME=<theme name>, SB_SPAN=1.
+        if let name = env["SB_THEME"], let theme = Theme.all.first(where: { $0.name == name }) { document.style.apply(theme) }
+        document.style.spanSet = env["SB_SPAN"] == "1"
         for (index, caption) in Self.captions.enumerated() {
             let url = samples.appendingPathComponent(String(format: "%02d.png", index + 1))
             guard FileManager.default.fileExists(atPath: url.path) else { continue }
@@ -35,10 +38,11 @@ struct SampleRenderTests {
         try #require(!document.shots.isEmpty)
         var tiles: [NSBitmapImageRep] = []
         for (index, shot) in document.shots.enumerated() {
-            let bitmap = try ShotRenderer.render(shot: shot, style: document.style)
+            let position = ShotRenderer.SetPosition(index: index, count: document.shots.count)
+            let bitmap = try ShotRenderer.render(shot: shot, style: document.style, position: position)
             let png = try #require(bitmap.representation(using: .png, properties: [:]))
             try png.write(to: out.appendingPathComponent(String(format: "export-%02d.png", index + 1)))
-            tiles.append(try ShotRenderer.render(shot: shot, style: document.style, maxDimension: 900))
+            tiles.append(try ShotRenderer.render(shot: shot, style: document.style, maxDimension: 900, position: position))
         }
         try contactSheet(tiles).write(to: out.appendingPathComponent("set.png"))
         try JSONEncoder().encode(document).write(to: out.appendingPathComponent("Sample.shotset"))

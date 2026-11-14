@@ -33,7 +33,7 @@ struct BuilderTests {
 
     @Test func malformedProjectsAreRejected() throws {
         var document = ShotDocument()
-        document.version = 2
+        document.version = ShotDocument.currentVersion + 1
         #expect(throws: (any Error).self) { try ShotDocument.decode(JSONEncoder().encode(document)) }
         document.version = 1
         document.style.imageScale = -1
@@ -127,5 +127,57 @@ struct BuilderTests {
         var invalid = shots[0]
         invalid.headline = String(repeating: "Overflow ", count: 100)
         #expect(throws: (any Error).self) { try SetExporter.export(shots: [invalid], style: SetStyle(), parent: root) }
+    }
+
+    @Test func versionOneProjectsOpenWithSolidBackground() throws {
+        let png = try fixture().imageData.base64EncodedString()
+        let id = UUID().uuidString
+        let json = """
+        {"version":1,"style":{"preset":"phone69","landscape":false,"layout":"Caption below","font":"Serif",
+        "background":{"red":0.2,"green":0.4,"blue":0.6},"foreground":{"red":1,"green":1,"blue":1},
+        "imageScale":0.8,"frame":true},
+        "shots":[{"id":"\(id)","name":"Old","imageData":"\(png)","headline":"Hi","subtitle":""}]}
+        """
+        let loaded = try ShotDocument.decode(Data(json.utf8))
+        #expect(loaded.version == ShotDocument.currentVersion)
+        #expect(loaded.style.background == .solid(RGBColor(0.2, 0.4, 0.6)))
+        #expect(loaded.style.layout == .below)
+        #expect(loaded.style.imageScale == 0.8)
+        #expect(loaded.style.accent == loaded.style.foreground)
+        #expect(!loaded.style.shadow)
+        #expect(loaded.shots.first?.headline == "Hi")
+    }
+
+    @Test func invalidBackgroundsAreRejected() throws {
+        var document = ShotDocument()
+        document.style.background = Background(kind: .linear, colors: [])
+        #expect(throws: (any Error).self) { try ShotDocument.decode(JSONEncoder().encode(document)) }
+        document.style.background = Background(kind: .linear, colors: [RGBColor(2, 0, 0), RGBColor(0, 0, 0)])
+        #expect(throws: (any Error).self) { try ShotDocument.decode(JSONEncoder().encode(document)) }
+    }
+
+    @Test func themesApplyAndRoundTrip() throws {
+        for theme in Theme.all {
+            var style = SetStyle()
+            style.apply(theme)
+            #expect(style.theme == theme)
+            #expect(theme.background.isValid)
+            let loaded = try JSONDecoder().decode(SetStyle.self, from: JSONEncoder().encode(style))
+            #expect(loaded == style)
+        }
+    }
+
+    @Test func spanningBackgroundJoinsNeighbouringShots() throws {
+        var style = SetStyle()
+        style.layout = .imageOnly
+        style.background = Background(kind: .linear, colors: [RGBColor(0, 0, 0), RGBColor(1, 1, 1)], angle: 0)
+        style.spanSet = true
+        let shot = try fixture()
+        let first = try ShotRenderer.render(shot: shot, style: style, maxDimension: 400, position: .init(index: 0, count: 3))
+        let second = try ShotRenderer.render(shot: shot, style: style, maxDimension: 400, position: .init(index: 1, count: 3))
+        let rightEdge = try #require(first.colorAt(x: first.pixelsWide - 1, y: 2)?.usingColorSpace(.sRGB))
+        let leftEdge = try #require(second.colorAt(x: 0, y: 2)?.usingColorSpace(.sRGB))
+        #expect(abs(rightEdge.redComponent - leftEdge.redComponent) < 0.03)
+        #expect(leftEdge.redComponent > 0.25 && leftEdge.redComponent < 0.45)
     }
 }

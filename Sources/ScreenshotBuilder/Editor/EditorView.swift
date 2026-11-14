@@ -42,6 +42,8 @@ struct EditorView: View {
         } detail: {
             HSplitView {
                 PreviewPane(shot: document.shots.first(where: { $0.id == selection }), style: document.style,
+                            position: .init(index: document.shots.firstIndex(where: { $0.id == selection }) ?? 0,
+                                            count: document.shots.count),
                             importImages: { replacing = nil; importing = true })
                     .frame(minWidth: 280)
                 Form {
