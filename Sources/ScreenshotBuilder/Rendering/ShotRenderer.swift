@@ -667,6 +667,7 @@ enum ShotRenderer {
             }
             let captureCastsShadow = style.shadow && hasAlpha && layer.device == nil && !layer.windowOnly
             if style.shadow && !captureCastsShadow && !layer.windowOnly {
+                layer.device?.drawContactShadow(in: cg)
                 // Two shadows: a wide ambient one and a tight contact one. Offsets are in device pixels.
                 for (offset, blur, alpha) in shadows {
                     cg.saveGState()

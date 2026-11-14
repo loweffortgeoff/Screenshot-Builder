@@ -100,6 +100,32 @@ struct SampleRenderTests {
         try JSONEncoder().encode(document).write(to: out.appendingPathComponent("Sample.shotset"))
     }
 
+    /// Silhouette check. With SB_FRAME_OUT=<png path>, draws only the Midnight MacBook frame at reference scale
+    /// (1 px = 1 reference px) on a transparent 3400 x 2240 canvas, with the screen opening at x 420, y 288 as in Apple's PNG.
+    nonisolated static let frameOut = ProcessInfo.processInfo.environment["SB_FRAME_OUT"]
+
+    @Test(.enabled(if: frameOut != nil)) func renderMacFrameAtReferenceScale() throws {
+        let out = URL(fileURLWithPath: try #require(Self.frameOut))
+        try FileManager.default.createDirectory(at: out.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let spec = DeviceSpec.macBookAir
+        let width = 3400, height = 2240
+        let cg = try #require(CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        cg.translateBy(x: 0, y: CGFloat(height))
+        cg.scaleBy(x: 1, y: -1)
+        // The screen sits (outer width - body width) / 2 + bezel.left = 322.5 px in from the outer rect.
+        let screenInset = (spec.outer.width - spec.body.width) / 2 + spec.bezel.left
+        let frame = DeviceFrame(spec: spec, landscape: false,
+                                rect: CGRect(x: 420 - screenInset, y: 288 - spec.bezel.top, width: spec.outer.width, height: spec.outer.height))
+        frame.draw(in: cg, finish: DeviceFinish.named("Midnight", for: .laptop)) {
+            cg.setFillColor(CGColor(gray: 0.5, alpha: 1))
+            cg.fill(frame.screenRect)
+        }
+        let image = try #require(cg.makeImage())
+        let png = try #require(NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]))
+        try png.write(to: out)
+    }
+
     /// Lays the set out side by side, as the App Store shows it.
     private func contactSheet(_ tiles: [NSBitmapImageRep]) throws -> Data {
         let gap = 24

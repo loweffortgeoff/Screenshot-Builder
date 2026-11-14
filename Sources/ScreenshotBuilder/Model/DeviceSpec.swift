@@ -11,6 +11,9 @@ enum FrameStyle: String, Codable, CaseIterable, Identifiable {
 ///
 /// Measured on 2026-11-13 from Apple Design Resources bezel PNGs (Bezel-iPhone-18, Bezel-iPad-Pro-(M5),
 /// Bezel-MacBook-Air-M5). Corner radii use the 45° diagonal method. The Apple images are not bundled.
+/// MacBook Air re-measured 2026-11-14 from `PNG/MacBook Air M5 13-inch Midnight.png` (alpha and luminance
+/// profiles): lid confirmed, chin and base corrected, feet added. `outer` includes the feet height, so layout
+/// and fit account for them.
 /// `classicPhone` is an estimate for the 5.5-inch home-button size; Apple no longer publishes that bezel.
 struct DeviceSpec: Equatable {
     enum Family { case phone, classicPhone, pad, laptop }
@@ -34,18 +37,24 @@ struct DeviceSpec: Equatable {
     var islandTopGap: CGFloat = 0
     var buttons: [Button] = []
     var buttonDepth: CGFloat = 0
-    // Laptop only: lid chin below the black bezel, and the base.
+    // Laptop only: lid chin below the black bezel, the base, and its two rubber feet.
     var chin: CGFloat = 0
     var baseSize: CGSize = .zero
     var thumbNotch: CGSize = .zero
+    var footSize: CGSize = .zero
+    /// Distance from each end of the base to the nearest foot edge.
+    var footInset: CGFloat = 0
+    /// Height of the dark hinge line between the lid and the base.
+    var hinge: CGFloat = 0
 
     var body: CGSize {
         CGSize(width: screen.width + bezel.left + bezel.right,
                height: screen.height + bezel.top + bezel.bottom + chin)
     }
-    /// Everything that draws: body, buttons, and base.
+    /// Everything that draws: body, buttons, hinge, base, and feet.
     var outer: CGSize {
-        CGSize(width: max(body.width + buttonDepth * 2, baseSize.width), height: body.height + baseSize.height)
+        CGSize(width: max(body.width + buttonDepth * 2, baseSize.width),
+               height: body.height + hinge + baseSize.height + footSize.height)
     }
 
     static let proMax = DeviceSpec(
@@ -88,7 +97,8 @@ struct DeviceSpec: Equatable {
         name: "MacBook Air 13-inch (M5)", family: .laptop, screen: CGSize(width: 2560, height: 1664),
         bezel: Insets(top: 61, left: 60, bottom: 44, right: 60), bodyRadius: 96, screenRadius: 34, band: 6,
         island: CGSize(width: 312, height: 53), islandTopGap: 0,
-        chin: 80, baseSize: CGSize(width: 3205, height: 78), thumbNotch: CGSize(width: 572, height: 40))
+        chin: 78, baseSize: CGSize(width: 3205, height: 79), thumbNotch: CGSize(width: 572, height: 40),
+        footSize: CGSize(width: 215, height: 14), footInset: 156, hinge: 1)
 
     static func `for`(_ preset: OutputPreset) -> DeviceSpec {
         switch preset {

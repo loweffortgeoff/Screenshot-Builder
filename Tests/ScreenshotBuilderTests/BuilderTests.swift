@@ -244,6 +244,29 @@ struct BuilderTests {
         }
     }
 
+    @Test func macFrameMatchesMeasuredBezel() {
+        let spec = DeviceSpec.macBookAir
+        #expect(spec.screen == CGSize(width: 2560, height: 1664))
+        #expect(spec.bezel == DeviceSpec.Insets(top: 61, left: 60, bottom: 44, right: 60))
+        #expect(spec.chin == 78)
+        #expect(spec.baseSize == CGSize(width: 3205, height: 79))
+        #expect(spec.footSize == CGSize(width: 215, height: 14) && spec.footInset == 156)
+        // Lid 2680 x 1847, a 1 px hinge line, the base, then the feet; the feet count toward the outer height.
+        #expect(spec.body == CGSize(width: 2680, height: 1847))
+        #expect(spec.hinge == 1)
+        #expect(spec.outer == CGSize(width: 3205, height: 1847 + 1 + 79 + 14))
+
+        // At reference scale the screen opening sits 322.5 px in (half the width difference plus the side bezel) and 61 down.
+        let frame = DeviceFrame(spec: spec, landscape: false, rect: CGRect(origin: .zero, size: spec.outer))
+        #expect(frame.screenRect == CGRect(x: 322.5, y: 61, width: 2560, height: 1664))
+        // Scaled: the same proportions inside a smaller outer rect.
+        let half = DeviceFrame(spec: spec, landscape: false, rect: CGRect(x: 10, y: 20, width: spec.outer.width / 2, height: spec.outer.height / 2))
+        #expect(half.screenRect == CGRect(x: 10 + 161.25, y: 20 + 30.5, width: 1280, height: 832))
+        // The silhouette holds the whole stack, feet included.
+        let box = frame.silhouette.boundingBoxOfPath
+        #expect(abs(box.minX) < 0.01 && abs(box.width - 3205) < 0.01 && abs(box.height - spec.outer.height) < 0.01)
+    }
+
     @Test func accentMarkupColorsWrappedWords() {
         var style = SetStyle()
         style.foreground = RGBColor(1, 1, 1)

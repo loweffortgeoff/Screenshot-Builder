@@ -51,43 +51,118 @@ struct DeviceFrame {
     var silhouette: CGPath {
         let path = CGMutablePath()
         path.addPath(lidPath(bodyRect), transform: transform)
-        if spec.family == .laptop { path.addPath(basePath(), transform: transform) }
+        if spec.family == .laptop {
+            path.addPath(basePath(), transform: transform)
+            path.addRect(hingeRect(), transform: transform)
+            for foot in footRects() { path.addPath(footPath(foot), transform: transform) }
+        }
         return path
     }
 
-    private func lidPath(_ rect: CGRect) -> CGPath {
+    /// The lid's bottom corners taper this far in, over this many rows (Apple MacBook Air bezel).
+    private static let lidTaper = CGSize(width: 12, height: 48)
+
+    private func lidPath(_ rect: CGRect, inset: CGFloat = 0) -> CGPath {
         guard spec.family == .laptop else {
             return CGPath(roundedRect: rect, cornerWidth: spec.bodyRadius, cornerHeight: spec.bodyRadius, transform: nil)
         }
-        // Laptop lid: round top corners, nearly square bottom corners.
-        let r = spec.bodyRadius, b: CGFloat = 8
+        // Laptop lid: round top corners, then a soft quadratic taper at the bottom corners.
+        let r = spec.bodyRadius - inset
+        let tx = max(Self.lidTaper.width - inset, 2), ty = max(Self.lidTaper.height - inset, 8)
         let path = CGMutablePath()
-        path.move(to: CGPoint(x: rect.minX, y: rect.maxY - b))
+        path.move(to: CGPoint(x: rect.minX, y: rect.maxY - ty))
         path.addArc(tangent1End: CGPoint(x: rect.minX, y: rect.minY), tangent2End: CGPoint(x: rect.maxX, y: rect.minY), radius: r)
         path.addArc(tangent1End: CGPoint(x: rect.maxX, y: rect.minY), tangent2End: CGPoint(x: rect.maxX, y: rect.maxY), radius: r)
-        path.addArc(tangent1End: CGPoint(x: rect.maxX, y: rect.maxY), tangent2End: CGPoint(x: rect.minX, y: rect.maxY), radius: b)
-        path.addArc(tangent1End: CGPoint(x: rect.minX, y: rect.maxY), tangent2End: CGPoint(x: rect.minX, y: rect.minY), radius: b)
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - ty))
+        path.addQuadCurve(to: CGPoint(x: rect.maxX - tx, y: rect.maxY), control: CGPoint(x: rect.maxX, y: rect.maxY - ty / 2))
+        path.addLine(to: CGPoint(x: rect.minX + tx, y: rect.maxY))
+        path.addQuadCurve(to: CGPoint(x: rect.minX, y: rect.maxY - ty), control: CGPoint(x: rect.minX, y: rect.maxY - ty / 2))
         path.closeSubpath()
         return path
     }
 
     private func baseRect() -> CGRect {
-        CGRect(x: (spec.outer.width - spec.baseSize.width) / 2, y: spec.body.height,
+        CGRect(x: (spec.outer.width - spec.baseSize.width) / 2, y: spec.body.height + spec.hinge,
                width: spec.baseSize.width, height: spec.baseSize.height)
     }
+    /// The dark strip between the lid and the base, as wide as the lid's bottom edge.
+    private func hingeRect() -> CGRect {
+        let body = bodyRect, taper = Self.lidTaper.width
+        return CGRect(x: body.minX + taper, y: body.maxY, width: body.width - taper * 2, height: spec.hinge)
+    }
+    /// The base front corners are a quarter ellipse this wide and tall (Apple MacBook Air bezel).
+    private static let baseCorner = CGSize(width: 46, height: 55)
+
     private func basePath() -> CGPath {
         let r = baseRect()
+        let cw = Self.baseCorner.width, ch = Self.baseCorner.height, k: CGFloat = 0.5523, top: CGFloat = 3
         let path = CGMutablePath()
-        // Deck edge with tapered, rounded ends.
-        path.move(to: CGPoint(x: r.minX + 10, y: r.minY))
-        path.addLine(to: CGPoint(x: r.maxX - 10, y: r.minY))
-        path.addQuadCurve(to: CGPoint(x: r.maxX - 4, y: r.minY + r.height * 0.55), control: CGPoint(x: r.maxX + 2, y: r.minY + 4))
-        path.addQuadCurve(to: CGPoint(x: r.maxX - r.height * 0.9, y: r.maxY), control: CGPoint(x: r.maxX - 12, y: r.maxY))
-        path.addLine(to: CGPoint(x: r.minX + r.height * 0.9, y: r.maxY))
-        path.addQuadCurve(to: CGPoint(x: r.minX + 4, y: r.minY + r.height * 0.55), control: CGPoint(x: r.minX + 12, y: r.maxY))
-        path.addQuadCurve(to: CGPoint(x: r.minX + 10, y: r.minY), control: CGPoint(x: r.minX - 2, y: r.minY + 4))
+        path.move(to: CGPoint(x: r.minX + top, y: r.minY))
+        path.addLine(to: CGPoint(x: r.maxX - top, y: r.minY))
+        path.addQuadCurve(to: CGPoint(x: r.maxX, y: r.minY + top), control: CGPoint(x: r.maxX, y: r.minY))
+        path.addLine(to: CGPoint(x: r.maxX, y: r.maxY - ch))
+        path.addCurve(to: CGPoint(x: r.maxX - cw, y: r.maxY),
+                      control1: CGPoint(x: r.maxX, y: r.maxY - ch * (1 - k)), control2: CGPoint(x: r.maxX - cw * (1 - k), y: r.maxY))
+        path.addLine(to: CGPoint(x: r.minX + cw, y: r.maxY))
+        path.addCurve(to: CGPoint(x: r.minX, y: r.maxY - ch),
+                      control1: CGPoint(x: r.minX + cw * (1 - k), y: r.maxY), control2: CGPoint(x: r.minX, y: r.maxY - ch * (1 - k)))
+        path.addLine(to: CGPoint(x: r.minX, y: r.minY + top))
+        path.addQuadCurve(to: CGPoint(x: r.minX + top, y: r.minY), control: CGPoint(x: r.minX, y: r.minY))
         path.closeSubpath()
         return path
+    }
+
+    /// The two rubber feet. Each starts one row inside the base so no seam shows, and is a pixel and a half wider
+    /// there so it measures `footSize.width` at the base edge (it narrows by one pixel per row).
+    private func footRects() -> [CGRect] {
+        let base = baseRect(), size = spec.footSize
+        guard size.width > 0 else { return [] }
+        return [base.minX + spec.footInset, base.maxX - spec.footInset - size.width].map {
+            CGRect(x: $0 - 1.5, y: base.maxY - 1, width: size.width + 3, height: size.height + 1)
+        }
+    }
+    /// A foot narrows by one pixel per row on each side.
+    private func footPath(_ r: CGRect) -> CGPath {
+        let lean = r.height, c: CGFloat = 3
+        let path = CGMutablePath()
+        path.move(to: CGPoint(x: r.minX, y: r.minY))
+        path.addLine(to: CGPoint(x: r.maxX, y: r.minY))
+        path.addLine(to: CGPoint(x: r.maxX - lean + c * 0.6, y: r.maxY - c))
+        path.addQuadCurve(to: CGPoint(x: r.maxX - lean - c, y: r.maxY), control: CGPoint(x: r.maxX - lean, y: r.maxY))
+        path.addLine(to: CGPoint(x: r.minX + lean + c, y: r.maxY))
+        path.addQuadCurve(to: CGPoint(x: r.minX + lean - c * 0.6, y: r.maxY - c), control: CGPoint(x: r.minX + lean, y: r.maxY))
+        path.closeSubpath()
+        return path
+    }
+
+    /// A shading value measured on the Midnight bezel, as luminance, mapped onto `finish` so every finish keeps
+    /// the same relative shading: 0 black, 39 underside, 61 rim, 113 metal, 139 highlight, 255 white.
+    private func tone(_ luminance: CGFloat, _ finish: DeviceFinish) -> RGBColor {
+        let stops: [(CGFloat, RGBColor)] = [(0, RGBColor(0, 0, 0)), (39, finish.button), (61, finish.shadow),
+                                            (113, finish.metal), (139, finish.highlight), (255, RGBColor(1, 1, 1))]
+        let l = min(max(luminance, 0), 255)
+        let upper = stops.firstIndex { $0.0 >= l } ?? stops.count - 1
+        guard upper > 0 else { return stops[0].1 }
+        let (l0, c0) = stops[upper - 1], (l1, c1) = stops[upper]
+        let t = Double((l - l0) / (l1 - l0))
+        return RGBColor(c0.red + (c1.red - c0.red) * t, c0.green + (c1.green - c0.green) * t, c0.blue + (c1.blue - c0.blue) * t)
+    }
+
+    /// A soft contact shadow under the base and feet. Call before `draw`, when shadows are on. Laptop only.
+    func drawContactShadow(in cg: CGContext) {
+        guard spec.family == .laptop else { return }
+        let base = baseRect()
+        let radius = base.width / 2 * 1.03
+        cg.saveGState()
+        cg.concatenate(transform)
+        cg.translateBy(x: base.midX, y: base.maxY + spec.footSize.height * 0.4)
+        cg.scaleBy(x: 1, y: 40 / radius)
+        let space = CGColorSpace(name: CGColorSpace.sRGB)!
+        let colors = [0.34, 0.26, 0.0].map { CGColor(gray: 0, alpha: $0) } as CFArray
+        if let shade = CGGradient(colorsSpace: space, colors: colors, locations: [0, 0.8, 1]) {
+            cg.drawRadialGradient(shade, startCenter: .zero, startRadius: 0, endCenter: .zero, endRadius: radius, options: [])
+        }
+        cg.restoreGState()
     }
 
     /// Draws the frame. `drawScreen` paints the screenshot, already clipped to the screen opening.
@@ -97,7 +172,6 @@ struct DeviceFrame {
             CGGradient(colorsSpace: space, colors: colors.map { $0.nsColor.cgColor } as CFArray, locations: locations)!
         }
         func color(_ c: RGBColor) -> CGColor { c.nsColor.cgColor }
-        let black = RGBColor(0, 0, 0)
 
         cg.saveGState()
         cg.concatenate(transform)
@@ -114,14 +188,14 @@ struct DeviceFrame {
         }
 
         if spec.family == .laptop {
-            drawLaptopBase(cg, finish: finish, gradient: { gradient($0, $1) })
+            drawLaptopBase(cg, finish: finish)
         }
 
         // Metal band: dark outer edge, a polished highlight, then the main tone.
         let body = bodyRect
         cg.addPath(lidPath(body)); cg.setFillColor(color(finish.shadow)); cg.fillPath()
         if spec.family == .laptop {
-            cg.addPath(lidPath(body.insetBy(dx: spec.band, dy: spec.band))); cg.setFillColor(color(black)); cg.fillPath()
+            drawLaptopLid(cg, finish: finish)
         } else {
             let band = spec.band
             let layers: [(CGFloat, RGBColor)] = [(band * 0.12, finish.metal), (band * 0.45, finish.highlight),
@@ -151,15 +225,6 @@ struct DeviceFrame {
             }
             cg.restoreGState()
         }
-        if spec.family == .laptop {
-            // Hinge chin under the black bezel.
-            let chin = CGRect(x: body.minX + spec.band, y: body.maxY - spec.chin, width: body.width - spec.band * 2, height: spec.chin - 2)
-            cg.saveGState()
-            cg.clip(to: chin)
-            cg.drawLinearGradient(gradient([RGBColor(hex: 0x242527), RGBColor(hex: 0x0F1012)]),
-                                  start: CGPoint(x: 0, y: chin.minY), end: CGPoint(x: 0, y: chin.maxY), options: [])
-            cg.restoreGState()
-        }
         if spec.family == .classicPhone {
             // Home button and earpiece, estimated.
             let s = screenLocal
@@ -180,6 +245,7 @@ struct DeviceFrame {
         cg.setFillColor(CGColor(gray: 0, alpha: 1))
         cg.fill(screenRect)
         drawScreen()
+        if spec.family == .laptop { drawGlassReflection(cg) }
         cg.restoreGState()
 
         // Dynamic Island or camera notch, above the capture.
@@ -227,25 +293,107 @@ struct DeviceFrame {
         }
     }
 
-    private func drawLaptopBase(_ cg: CGContext, finish: DeviceFinish, gradient: ([RGBColor], [CGFloat]?) -> CGGradient) {
+    /// A vertical gradient from `y0` to `y1`, given as (row offset from `y0`, Midnight luminance) stops.
+    /// The black display glass looks the same on every finish: a neutral dark grey with a faint blue cast.
+    private func glass(_ luminance: CGFloat) -> RGBColor {
+        RGBColor(Double(luminance) / 255, Double(luminance + 1) / 255, Double(luminance + 3) / 255)
+    }
+
+    private func drawProfile(_ cg: CGContext, _ stops: [(CGFloat, CGFloat)], finish: DeviceFinish? = nil, from y0: CGFloat, to y1: CGFloat) {
+        let space = CGColorSpace(name: CGColorSpace.sRGB)!
+        let colors = stops.map { stop in (finish.map { tone(stop.1, $0) } ?? glass(stop.1)).nsColor.cgColor } as CFArray
+        let span = y1 - y0
+        guard let shade = CGGradient(colorsSpace: space, colors: colors, locations: stops.map { $0.0 / span }) else { return }
+        cg.drawLinearGradient(shade, start: CGPoint(x: 0, y: y0), end: CGPoint(x: 0, y: y1), options: [])
+    }
+
+    /// Feet, then the base: a lit deck that darkens toward the front, a thumb notch, and a front lip with a specular line.
+    /// Row offsets are measured on the 79-row Midnight base.
+    private func drawLaptopBase(_ cg: CGContext, finish: DeviceFinish) {
         let r = baseRect()
+        for foot in footRects() {
+            cg.saveGState()
+            cg.addPath(footPath(foot)); cg.clip()
+            let y0 = foot.minY + 1, h = foot.height - 1
+            drawProfile(cg, [(0, 60), (0.1 * h, 78), (0.5 * h, 82), (0.64 * h, 40), (0.7 * h, 38), (0.78 * h, 82), (0.95 * h, 80), (h, 60)],
+                        finish: finish, from: y0, to: y0 + h)
+            cg.restoreGState()
+        }
         cg.saveGState()
         cg.addPath(basePath())
         cg.clip()
-        cg.drawLinearGradient(gradient([finish.highlight, finish.metal, finish.metal, finish.button], [0, 0.18, 0.5, 1]),
-                              start: CGPoint(x: 0, y: r.minY), end: CGPoint(x: 0, y: r.maxY), options: [])
-        // Bright deck edge and a darker underside give the base some thickness.
-        cg.setFillColor(CGColor(gray: 1, alpha: 0.35))
-        cg.fill(CGRect(x: r.minX, y: r.minY, width: r.width, height: 3))
-        cg.setFillColor(CGColor(gray: 0, alpha: 0.18))
-        cg.fill(CGRect(x: r.minX, y: r.minY + r.height * 0.62, width: r.width, height: r.height * 0.38))
-        // Thumb notch at the front edge.
-        let notch = CGRect(x: r.midX - spec.thumbNotch.width / 2, y: r.minY, width: spec.thumbNotch.width, height: spec.thumbNotch.height)
-        cg.addPath(CGPath(roundedRect: notch.insetBy(dx: 0, dy: -spec.thumbNotch.height), cornerWidth: spec.thumbNotch.height,
-                          cornerHeight: spec.thumbNotch.height, transform: nil))
+        drawProfile(cg, [(0, 98), (10, 98), (15, 96), (23, 93), (28, 86), (32, 79), (36, 68), (39, 58), (40, 55), (45, 38),
+                         (48, 31), (51, 28), (56, 34), (60, 45), (65, 59), (70, 73), (72, 80), (74, 76), (76, 66), (78.5, 58), (79, 55)],
+                    finish: finish, from: r.minY, to: r.minY + 79)
+        cg.setFillColor(tone(123, finish).nsColor.cgColor)
+        cg.fill(CGRect(x: r.minX, y: r.minY, width: r.width, height: 2))
+        // Thumb notch: a flat, brighter recess. It flares at the deck edge and is rounded at the bottom.
+        let n = spec.thumbNotch, flare: CGFloat = 32, half = n.width / 2 - flare, drop = n.height, corner: CGFloat = 20
+        let cx = r.midX, top = r.minY
+        let notch = CGMutablePath()
+        notch.move(to: CGPoint(x: cx - half - flare, y: top))
+        notch.addQuadCurve(to: CGPoint(x: cx - half, y: top + 12), control: CGPoint(x: cx - half, y: top))
+        notch.addLine(to: CGPoint(x: cx - half, y: top + drop - corner))
+        notch.addQuadCurve(to: CGPoint(x: cx - half + corner, y: top + drop), control: CGPoint(x: cx - half, y: top + drop))
+        notch.addLine(to: CGPoint(x: cx + half - corner, y: top + drop))
+        notch.addQuadCurve(to: CGPoint(x: cx + half, y: top + drop - corner), control: CGPoint(x: cx + half, y: top + drop))
+        notch.addLine(to: CGPoint(x: cx + half, y: top + 12))
+        notch.addQuadCurve(to: CGPoint(x: cx + half + flare, y: top), control: CGPoint(x: cx + half, y: top))
+        notch.closeSubpath()
+        cg.addPath(notch)
         cg.clip()
-        cg.drawLinearGradient(gradient([finish.metal, finish.highlight], nil),
-                              start: CGPoint(x: 0, y: notch.minY), end: CGPoint(x: 0, y: notch.maxY), options: [])
+        drawProfile(cg, [(0, 140), (0.6 * drop, 138), (0.9 * drop, 131), (drop, 129)], finish: finish, from: top, to: top + drop)
         cg.restoreGState()
+    }
+
+    /// The lid inside its metal rim: a glass-edge ring, an edge highlight that is strongest at the top, the chin that
+    /// darkens toward the hinge, and the hinge line where the lid meets the base. The glass and chin stay neutral on
+    /// every finish, as on Apple's bezels; the rim and highlight follow the finish.
+    private func drawLaptopLid(_ cg: CGContext, finish: DeviceFinish) {
+        let body = bodyRect, band = spec.band
+        let space = CGColorSpace(name: CGColorSpace.sRGB)!
+        // Dark aluminium ring around the glass, then the black glass itself.
+        cg.addPath(lidPath(body.insetBy(dx: band, dy: band), inset: band))
+        cg.setFillColor(glass(32).nsColor.cgColor); cg.fillPath()
+        let glassInset = band + 10
+        cg.addPath(lidPath(body.insetBy(dx: glassInset, dy: glassInset), inset: glassInset))
+        cg.setFillColor(CGColor(gray: 0, alpha: 1)); cg.fillPath()
+
+        // Edge highlight along the lid's outer edge.
+        let edge: CGFloat = 2.5
+        cg.saveGState()
+        cg.addPath(lidPath(body.insetBy(dx: edge / 2, dy: edge / 2), inset: edge / 2))
+        cg.setLineWidth(edge)
+        cg.replacePathWithStrokedPath()
+        cg.clip()
+        let lit = finish.highlight.nsColor
+        let rim = [0.95, 0.4, 0.3, 0.12].map { lit.withAlphaComponent($0).cgColor } as CFArray
+        if let sheen = CGGradient(colorsSpace: space, colors: rim, locations: [0, 0.1, 0.7, 1]) {
+            cg.drawLinearGradient(sheen, start: CGPoint(x: 0, y: body.minY), end: CGPoint(x: 0, y: body.maxY), options: [])
+        }
+        cg.restoreGState()
+
+        // Chin: aluminium below the black glass, darker toward the hinge.
+        let chin = CGRect(x: body.minX, y: body.maxY - spec.chin, width: body.width, height: spec.chin)
+        cg.saveGState()
+        cg.addPath(lidPath(body.insetBy(dx: band, dy: 0), inset: band))
+        cg.clip()
+        drawProfile(cg, [(0, 37), (spec.chin * 0.8, 16), (spec.chin, 16)], from: chin.minY, to: chin.maxY)
+        cg.setFillColor(glass(8).nsColor.cgColor)
+        cg.fill(CGRect(x: chin.minX, y: chin.minY, width: chin.width, height: 1))
+        cg.restoreGState()
+
+        // Hinge line across the width of the lid bottom.
+        cg.setFillColor(glass(8).nsColor.cgColor)
+        cg.fill(hingeRect())
+    }
+
+    /// A faint diagonal glare across the display glass, clipped by the caller to the screen opening.
+    private func drawGlassReflection(_ cg: CGContext) {
+        let s = screenRect
+        let space = CGColorSpace(name: CGColorSpace.sRGB)!
+        let colors = [0, 0, 0.04, 0.04, 0, 0].map { CGColor(gray: 1, alpha: $0) } as CFArray
+        guard let glare = CGGradient(colorsSpace: space, colors: colors, locations: [0, 0.34, 0.44, 0.52, 0.64, 1]) else { return }
+        cg.drawLinearGradient(glare, start: CGPoint(x: s.minX, y: s.minY), end: CGPoint(x: s.maxX, y: s.maxY), options: [])
     }
 }
