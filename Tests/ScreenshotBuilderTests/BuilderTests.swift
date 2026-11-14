@@ -485,10 +485,11 @@ struct BuilderTests {
                         }
                         if let callout = c.callout { #expect(canvas.contains(callout.rect)) }
                         if arrangement == .heroLeft || arrangement == .heroRight {
-                            // Hero runs off the side only; top and bottom stay on the canvas (small lean allowance).
-                            let lean = front.frame.width * 0.08
-                            #expect(front.frame.minY >= -0.5 && front.frame.maxY <= canvas.maxY + 0.5, "\(preset) \(landscape) \(layout) hero")
-                            #expect(front.bounds.minY >= -lean && front.bounds.maxY <= canvas.maxY + lean)
+                            // Hero stays on the canvas side to side, so left-aligned app labels stay whole.
+                            #expect(front.frame.minX >= -0.5 && front.frame.maxX <= canvas.maxX + 0.5, "\(preset) \(landscape) \(layout) hero")
+                        }
+                        if arrangement == .tiltLeft || arrangement == .tiltRight {
+                            #expect(front.bounds.width > canvas.width || (front.bounds.minX >= -0.5 && front.bounds.maxX <= canvas.maxX + 0.5))
                         }
                         #expect(c.layers.count == 1, "no companion passed, so Duo draws as Standard")
                         c = ShotRenderer.compose(shot: shot, style: style, sourceSize: CGSize(width: 1320, height: 2868),

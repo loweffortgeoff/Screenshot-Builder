@@ -56,6 +56,8 @@ enum ShotRenderer {
         /// The magnified part of the capture, in unit coordinates (top-left origin).
         var source: CGRect
         var cornerRadius: CGFloat
+        /// Where that part sits on the device screen, ringed so the card reads as a zoom of it.
+        var highlight: CGRect = .zero
     }
 
     /// Largest rect with `aspect`'s proportions that fits in `box`, centered.
@@ -193,7 +195,7 @@ enum ShotRenderer {
                                  frame: box, usesCompanion: companion)
                 } else if spec.family == .laptop && mismatch(content) > 0.03 {
                     // A window capture, not a full-screen one: float it on a wallpaper with room around it.
-                    let r = Self.fit(capture, in: content.insetBy(dx: content.width * 0.07, dy: content.height * 0.08))
+                    let r = Self.fit(capture, in: content.insetBy(dx: content.width * 0.035, dy: content.height * 0.045))
                     return Layer(device: frame, imageRect: r, cornerRadius: r.width * 0.008, windowed: true,
                                  rotation: rotation, frame: box, usesCompanion: companion)
                 }
@@ -226,24 +228,21 @@ enum ShotRenderer {
             let sign: CGFloat = arrangement == .tiltRight ? 1 : -1
             layers = [layer(in: scaled(base, 0.97, dx: sign * base.width * 0.05), capture: sourceSize, rotation: sign * 8 * degrees)]
         case .heroLeft, .heroRight:
-            // Start from the plain fit, not a bleed placement, and grow only while the device still fits vertically,
-            // so it runs off the side edge alone and the status bar and tab bar stay on the canvas.
+            // A large device pushed toward one side that runs off the edge away from the caption, not off the side,
+            // so left-aligned app labels stay whole. Start from the plain fit, not a bleed placement.
             let plain = Self.fit(objectAspect, in: available)
-            let roomTall = (style.layout.hasCaption ? available.height : size.height - margin * 2) * 0.97
-            let grow = min(1.2, roomTall / plain.height)
-            var r = scaled(plain, max(1, grow))
-            if style.layout.hasCaption {
-                if style.layout.captionOnTop { r.origin.y = available.minY } else { r.origin.y = available.maxY - r.height }
+            var r = scaled(plain, min(1.28, size.width * 0.86 / plain.width))
+            if style.layout.hasCaption && !style.layout.captionOnTop {
+                r.origin.y = available.maxY - r.height
             } else {
-                r.origin.y = (size.height - r.height) / 2
+                r.origin.y = style.layout.hasCaption ? available.minY + available.height * 0.02 : size.height * 0.12
             }
-            // About a quarter of the device runs off the side edge.
-            r.origin.x = arrangement == .heroRight ? size.width - r.width * 0.76 : -r.width * 0.24
+            r.origin.x = arrangement == .heroRight ? size.width - r.width - margin * 0.5 : margin * 0.5
             // Lean the device's top toward the canvas center.
             layers = [layer(in: r, capture: sourceSize, rotation: (arrangement == .heroRight ? -4 : 4) * degrees)]
         case .duo:
-            let back = scaled(base, 0.78, dx: -base.width * 0.17, dy: -base.height * 0.03)
-            let front = scaled(base, 0.84, dx: base.width * 0.15, dy: base.height * 0.05)
+            let back = scaled(base, 0.74, dx: -base.width * 0.2, dy: -base.height * 0.04)
+            let front = scaled(base, 0.8, dx: base.width * 0.18, dy: base.height * 0.06)
             layers = [layer(in: back, capture: companionSize, rotation: 7 * degrees, companion: true),
                       layer(in: front, capture: sourceSize, rotation: -3 * degrees)]
         case .callout:
@@ -251,16 +250,21 @@ enum ShotRenderer {
             layers = [device]
             // Magnify a band of the capture about 1.6x, on a card that overlaps the device's right edge.
             // Whole rows read better than a cropped middle, so the band spans nearly the full capture width.
-            // On wide captures, narrow the band so the card stays about 2.2:1 instead of a thin strip.
-            let cropWidth = min(0.94, 0.18 * sourceSize.height * 2.2 / sourceSize.width)
-            let crop = CGRect(x: (1 - cropWidth) / 2, y: min(max(shot.calloutCenter - 0.09, 0), 0.82), width: cropWidth, height: 0.18)
-            let cardWidth = min(size.width * 0.74, device.imageRect.width * crop.width * 1.45)
+            // Full-width rows read cleanly. Only wide captures narrow the band, so the card is never thinner than 3.2:1.
+            let cropWidth = min(1, 0.16 * sourceSize.height * 3.2 / sourceSize.width)
+            let crop = CGRect(x: (1 - cropWidth) / 2, y: min(max(shot.calloutCenter - 0.08, 0), 0.84), width: cropWidth, height: 0.16)
+            let screen = device.imageRect
+            let highlight = CGRect(x: screen.minX + crop.minX * screen.width, y: screen.minY + crop.minY * screen.height,
+                                   width: crop.width * screen.width, height: crop.height * screen.height)
+            let cardWidth = min(size.width * 0.74, screen.width * crop.width * 1.4)
             let cardHeight = cardWidth * (crop.height * sourceSize.height) / (crop.width * sourceSize.width)
-            let anchorY = device.imageRect.minY + device.imageRect.height * shot.calloutCenter
-            let cardY = min(max(anchorY - cardHeight / 2, available.minY), available.maxY - cardHeight)
-            let cardX = min(device.imageRect.maxX - cardWidth * 0.35, size.width - margin * 0.6 - cardWidth)
+            // The card sits beside its source, not on it: below a source in the upper half, above one in the lower half.
+            let gap = cardHeight * 0.18
+            var cardY = shot.calloutCenter < 0.5 ? highlight.maxY + gap : highlight.minY - gap - cardHeight
+            cardY = min(max(cardY, available.minY), available.maxY - cardHeight)
+            let cardX = min(screen.maxX - cardWidth * 0.4, size.width - margin * 0.6 - cardWidth)
             callout = Callout(rect: CGRect(x: cardX, y: cardY, width: cardWidth, height: cardHeight), source: crop,
-                              cornerRadius: cardWidth * 0.045)
+                              cornerRadius: cardWidth * 0.045, highlight: highlight)
         }
         // Keep rotated or enlarged devices clear of the caption: shift the group away from the caption side.
         if hasCaption, let bounds = layers.map(\.bounds).reduce(nil, { (acc: CGRect?, r) in acc.map { $0.union(r) } ?? r }) {
@@ -273,6 +277,25 @@ enum ShotRenderer {
                     return moved
                 }
                 callout?.rect.origin.y += shift
+            }
+        }
+        // Keep tilted and Duo devices on the canvas horizontally (Hero places itself).
+        if [.tiltLeft, .tiltRight, .duo].contains(arrangement),
+           let bounds = layers.map(\.bounds).reduce(nil, { (acc: CGRect?, r) in acc.map { $0.union(r) } ?? r }) {
+            let edge = margin * 0.3
+            var dx: CGFloat = 0
+            if bounds.width <= size.width - edge * 2 {
+                if bounds.minX < edge { dx = edge - bounds.minX } else if bounds.maxX > size.width - edge { dx = size.width - edge - bounds.maxX }
+            } else {
+                dx = size.width / 2 - bounds.midX
+            }
+            if dx != 0 {
+                layers = layers.map { l in
+                    var moved = layer(in: l.frame.offsetBy(dx: dx, dy: 0), capture: l.usesCompanion ? companionSize : sourceSize,
+                                      rotation: l.rotation, companion: l.usesCompanion)
+                    if l.device == nil { moved.frame = l.frame.offsetBy(dx: dx, dy: 0) }
+                    return moved
+                }
             }
         }
         let rect = layers.last?.imageRect ?? base
@@ -450,6 +473,22 @@ enum ShotRenderer {
     /// A white-bordered card showing one band of the capture, magnified, with a strong shadow.
     private static func drawCallout(_ callout: Callout, source: CGImage, in cg: CGContext, unit: CGFloat, pixelScale: CGFloat) {
         let border = max(4, callout.rect.width * 0.014)
+        if callout.highlight != .zero {
+            // Ring the source rows on the device and join them to the card, so the card reads as a zoom.
+            let ring = callout.highlight.insetBy(dx: border * 0.5, dy: border * 0.5)
+            cg.saveGState()
+            cg.setStrokeColor(CGColor(gray: 1, alpha: 0.9))
+            cg.setLineWidth(border * 0.7)
+            cg.addPath(CGPath(roundedRect: ring, cornerWidth: border * 2, cornerHeight: border * 2, transform: nil))
+            cg.strokePath()
+            let below = callout.rect.minY > ring.maxY
+            let from = CGPoint(x: min(ring.maxX - border * 3, callout.rect.minX + callout.rect.width * 0.25), y: below ? ring.maxY : ring.minY)
+            let to = CGPoint(x: from.x, y: below ? callout.rect.minY - border : callout.rect.maxY + border)
+            cg.setLineWidth(border * 0.5)
+            cg.setLineDash(phase: 0, lengths: [border * 1.6, border * 1.1])
+            cg.move(to: from); cg.addLine(to: to); cg.strokePath()
+            cg.restoreGState()
+        }
         let outer = callout.rect.insetBy(dx: -border, dy: -border)
         let outerPath = CGPath(roundedRect: outer, cornerWidth: callout.cornerRadius + border,
                                cornerHeight: callout.cornerRadius + border, transform: nil)

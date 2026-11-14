@@ -123,7 +123,9 @@ extension Shot {
             let mean = values.reduce(0, +) / Double(max(values.count, 1))
             return values.reduce(0) { $0 + abs($1 - mean) } / Double(max(values.count, 1))
         }
-        return [CalloutRegion.top, .middle, .bottom].map(\.center).max { spread($0) < spread($1) } ?? 0.5
+        // The top band usually holds the screen title, which reads as a repeat when magnified, so it must win clearly.
+        func score(_ center: CGFloat) -> Double { spread(center) * (center == CalloutRegion.top.center ? 0.7 : 1) }
+        return [CalloutRegion.top, .middle, .bottom].map(\.center).max { score($0) < score($1) } ?? 0.5
     }
 
     /// A blank screen at the device's native size, for the empty-set preview.
