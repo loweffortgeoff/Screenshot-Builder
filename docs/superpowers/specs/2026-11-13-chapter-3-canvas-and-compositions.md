@@ -1,6 +1,6 @@
 # Screenshot Builder — Chapter 3 spec: canvas, Zoom, iPad, Mac, and compositions
 
-Status: spec only, written 2026-11-13, updated 2026-11-14 with Geoff's hands-on findings and his answers (see "Hands-on findings" and "Resolved questions"). Not approved. No implementation exists.
+Status: Approved 2026-11-14 and implemented on `feature/chapter-3`. Written 2026-11-13, updated 2026-11-14 with Geoff's hands-on findings and his answers (see "Hands-on findings" and "Resolved questions"). Deviations are recorded in DECISIONS.md (2026-11-14 entries).
 Branch `feature/pro-framing`, after `4c87fc2`.
 
 ## Why

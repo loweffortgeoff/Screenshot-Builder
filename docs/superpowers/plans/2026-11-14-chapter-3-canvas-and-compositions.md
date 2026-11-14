@@ -1,6 +1,6 @@
 # Screenshot Builder — Chapter 3 plan: canvas, Zoom, iPad, Mac, and compositions
 
-Status: draft, waiting for Geoff's approval. Written 2026-11-14 on the MacBook Pro.
+Status: Approved by Geoff on 2026-11-14 and implemented on `feature/chapter-3` (milestones Z–N done). Council medians 7.3, 7.4, 7.4; the 8.0 bar was not met, so the escalation to Geoff is open. Results: `docs/superpowers/council/chapter-3-results.md`. Written 2026-11-14 on the MacBook Pro.
 Spec: `docs/superpowers/specs/2026-11-13-chapter-3-canvas-and-compositions.md` (R1–R5, H1–H3).
 
 ## Context

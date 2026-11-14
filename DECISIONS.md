@@ -17,4 +17,16 @@
 - 2026-11-13: Zoom callout regions default to Auto, which picks the third of the capture with the most luminance variation, skipping the status bar and the bottom bar.
 - 2026-11-13: Drop the bleed fade (council round 3: it tinted the screenshot). Theme colors must pass a 3:1 large-text contrast test against every background color.
 - 2026-11-13: Badges are per shot. Any badge in a set reserves the badge row on every shot, so headlines stay aligned.
+- 2026-11-14: Chapter 3. The Zoom card may span the canvas safe width (0.88 × width), not 0.78: at 0.78 the card showed half rows or the device shrank to half the canvas. Whole rows win: the device shrinks (to the largest size the 1.6× floor allows) before the crop band narrows. Auto skips the status bar, navigation bar, tab bar, and home indicator.
+- 2026-11-14: A dragged Zoom ring keeps the same 10% minimum height as the automatic crop.
+- 2026-11-14: Caption weights come from the faces each family really has (`NSFontManager`), upright and regular width only. The subtitle is always a lighter real face, so Futura offers Bold only (its Medium is the subtitle). This overrides the spec example that said "Medium and Bold".
+- 2026-11-14: Remove the list sidebar; Set view and the filmstrip menu replace it (Geoff approved). Set view hides the inspector, which returns with the canvas.
+- 2026-11-14: iPad glows are 1.2× on iPad-family presets. The spec's "wider than 1.6× the iPhone width" never fires on pad13 portrait (1.56×). Linear themes such as Sky have no glows, so they stay flat.
+- 2026-11-14: iPad Caption below keeps a clearance under the device, so pad13 Standard fills 0.697 of the width there (the spec target is 0.70).
+- 2026-11-14: Mac Auto fit keeps chapter 2 behaviour for captures that fit below the notch within 3% (for example 2560 × 1600), so old files do not change. Other opaque captures at least 1440 px tall and wider than 1.5:1 fill the screen. A Duo companion follows its aspect.
+- 2026-11-14: The MacBook lid numbers from 2026-11-13 were right; the flat look came from the drawing. Chin is 78 and the base 79 px, plus 14 px feet. The black-glass chin stays neutral on every finish.
+- 2026-11-14: Overlay with Zoom falls back to Stacked (the band would cover the card). Side by side with Duo or Zoom falls back to Stacked, and Big number with an empty stat falls back to Stacked.
+- 2026-11-14: Side by side on portrait iPhone puts the caption above-left and a 0.72 × width phone on the right margin that bleeds 16% off the bottom. The spec's 0.42 W column plus 0.62 H device do not fit side by side at this size.
+- 2026-11-14: Text only uses a 2.2× headline and 1.35× subtitle, with no accent bar (judges read it as a stray dash). The Zoom marker keeps its thin stroke (R1.6) and gains a soft accent halo outside the ring.
+- 2026-11-14: Project format version 4. New keys decode with defaults; decoded Zoom rects and crop positions are validated, and bad values fall back to automatic placement.
 - 2026-11-13: Geoff accepted a council median of 7.5 for chapters 1 and 2. The 8.0 target was not met. The remaining gaps move to a chapter 3 spec (editor canvas, Zoom, iPad scale, Mac frame, caption compositions).
