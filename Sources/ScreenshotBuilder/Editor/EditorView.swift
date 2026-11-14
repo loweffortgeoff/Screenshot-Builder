@@ -189,6 +189,10 @@ struct EditorView: View {
                             captionBand: ShotRenderer.captionBand(shots: document.shots, style: document.style),
                             companion: selectedIndex.flatMap { ShotRenderer.companion(for: document.shots[$0], in: document.shots) },
                             zoom: $zoom, fitZoom: $fitZoom,
+                            update: { edited in
+                                if let index = document.shots.firstIndex(where: { $0.id == edited.id }) { document.shots[index] = edited }
+                            },
+                            showArrangement: { tab = .style },
                             importImages: { replacing = nil; importing = true })
             }
             if mode == .canvas && !document.shots.isEmpty {

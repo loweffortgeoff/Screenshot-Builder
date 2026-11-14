@@ -17,6 +17,10 @@ struct PreviewPane: View {
     @Binding var zoom: CGFloat?
     /// The zoom that fits the pane, reported so the toolbar can step from it.
     @Binding var fitZoom: CGFloat
+    /// Writes an edit made on the canvas back to the document.
+    var update: (Shot) -> Void = { _ in }
+    /// A single click on the device opens the arrangement controls.
+    var showArrangement: () -> Void = {}
     let importImages: () -> Void
     @Environment(\.displayScale) private var displayScale
     @State private var preview: NSImage?
@@ -24,6 +28,10 @@ struct PreviewPane: View {
     /// The blank device's screen in canvas points, for placing the empty-state prompt.
     @State private var placeholderScreen: CGRect?
     @State private var pinchStart: CGFloat?
+    @State private var editing: CanvasText?
+    @State private var draft = ""
+    @FocusState private var editorFocused: Bool
+    @State private var drag: (target: DragTarget, translation: CGSize)?
 
     private static let margin: CGFloat = 24
     private static let footer: CGFloat = 22
@@ -62,6 +70,7 @@ struct PreviewPane: View {
                 await render(dimension: renderDimension(in: pane))
             }
             .onChange(of: fitPoints(in: pane) * displayScale, initial: true) { _, value in fitZoom = value }
+            .onChange(of: shot?.id) { editing = nil; drag = nil }
         }
         .background(Color(nsColor: .underPageBackgroundColor))
     }
@@ -70,6 +79,7 @@ struct PreviewPane: View {
     private func canvas(for shot: Shot, pane: CGSize) -> some View {
         let scale = pointsPerPixel(in: pane)
         let size = CGSize(width: style.size.width * scale, height: style.size.height * scale)
+        let layout = composition(for: shot)
         let image = Group {
             if let preview {
                 Image(nsImage: preview).resizable().interpolation(.high)
@@ -79,9 +89,36 @@ struct PreviewPane: View {
         }
         .frame(width: size.width, height: size.height)
         .clipShape(RoundedRectangle(cornerRadius: min(size.width, size.height) * 0.02, style: .continuous))
+        .overlay(alignment: .topLeading) { overlays(shot: shot, layout: layout, scale: scale) }
         .shadow(color: .black.opacity(0.28), radius: 18, y: 8)
         .accessibilityLabel("Screenshot preview. \(shot.headline.replacingOccurrences(of: "*", with: "")). \(shot.subtitle)")
-        .gesture(MagnifyGesture()
+        .accessibilityHint("Double-click the headline, subtitle, or badge to edit it.")
+        .onTapGesture(count: 2) { location in
+            let point = CGPoint(x: location.x / scale, y: location.y / scale)
+            guard let layout, style.layout.hasCaption else { return }
+            let targets: [(CanvasText, CGRect)] = [(.badge, layout.badgeRect), (.headline, layout.headlineRect), (.subtitle, layout.subtitleRect)]
+            if let hit = targets.first(where: { $0.1.insetBy(dx: -12, dy: -8).contains(point) }) { beginEditing(hit.0, shot: shot) }
+        }
+        .onTapGesture(count: 1) { location in
+            let point = CGPoint(x: location.x / scale, y: location.y / scale)
+            if editing != nil { commitEdit(shot: shot); return }
+            if layout?.layers.contains(where: { $0.bounds.contains(point) }) == true { showArrangement() }
+        }
+        .gesture(DragGesture(minimumDistance: 3)
+            .onChanged { value in
+                guard let callout = layout?.callout, editing == nil else { return }
+                if drag == nil {
+                    let start = CGPoint(x: value.startLocation.x / scale, y: value.startLocation.y / scale)
+                    if callout.rect.contains(start) { drag = (.card, .zero) } else if callout.highlight.contains(start) { drag = (.ring, .zero) } else { return }
+                }
+                drag?.translation = CGSize(width: value.translation.width / scale, height: value.translation.height / scale)
+            }
+            .onEnded { _ in
+                guard let drag, let callout = layout?.callout else { return }
+                self.drag = nil
+                finishDrag(drag.target, by: drag.translation, callout: callout, shot: shot)
+            })
+        .simultaneousGesture(MagnifyGesture()
             .onChanged { value in
                 let start = pinchStart ?? (zoom ?? fitZoom)
                 if pinchStart == nil { pinchStart = start }
@@ -99,6 +136,100 @@ struct PreviewPane: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding([.horizontal, .top], Self.margin)
         }
+    }
+
+    /// The same layout the renderer draws, for hit-testing and placing editors on the canvas.
+    private func composition(for shot: Shot) -> ShotRenderer.Composition? {
+        guard let image = shot.cgImage else { return nil }
+        let companionSize = companion?.cgImage.map { CGSize(width: $0.width, height: $0.height) }
+        return ShotRenderer.compose(shot: shot, style: style, sourceSize: CGSize(width: image.width, height: image.height),
+                                    captionBand: captionBand, companionSize: companionSize)
+    }
+
+    @ViewBuilder
+    private func overlays(shot: Shot, layout: ShotRenderer.Composition?, scale: CGFloat) -> some View {
+        if let drag, let callout = layout?.callout {
+            let source = drag.target == .card ? callout.rect : callout.highlight
+            let moved = source.offsetBy(dx: drag.translation.width, dy: drag.translation.height)
+            RoundedRectangle(cornerRadius: drag.target == .card ? callout.cornerRadius * scale : 4, style: .continuous)
+                .strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
+                .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 4))
+                .frame(width: moved.width * scale, height: moved.height * scale)
+                .offset(x: moved.minX * scale, y: moved.minY * scale)
+                .allowsHitTesting(false)
+        }
+        if let editing, let layout {
+            let metrics = ShotRenderer.CaptionMetrics(style: style)
+            let rect = editorRect(editing, layout: layout, metrics: metrics)
+            let font: NSFont = switch editing {
+            case .headline: style.headlineFont(size: metrics.headSize * scale)
+            case .subtitle: style.subtitleFont(size: metrics.subSize * scale)
+            case .badge: style.font.font(size: max(11, metrics.subSize * 0.62 * scale), weight: CaptionWeight.bold)
+            }
+            TextField(editing.title, text: $draft, axis: .vertical)
+                .textFieldStyle(.plain)
+                .font(Font(font))
+                .foregroundStyle(style.foreground.color)
+                .multilineTextAlignment(style.alignment == .center && editing != .badge ? .center : .leading)
+                .focused($editorFocused)
+                .autocorrectionDisabled()
+                .modifier(NoWritingTools())
+                .onSubmit { commitEdit(shot: shot) }
+                .onExitCommand { self.editing = nil }
+                .onChange(of: editorFocused) { _, focused in if !focused && self.editing != nil { commitEdit(shot: shot) } }
+                .padding(6)
+                .background(style.background.primary.color, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Color.accentColor, lineWidth: 2))
+                .frame(width: max(160, rect.width * scale + 12))
+                .offset(x: rect.minX * scale - 6, y: rect.minY * scale - 6)
+                .accessibilityLabel("Edit \(editing.title.lowercased())")
+        }
+    }
+
+    /// The editor spans the full text measure, so a longer edit has room before it wraps.
+    private func editorRect(_ text: CanvasText, layout: ShotRenderer.Composition, metrics: ShotRenderer.CaptionMetrics) -> CGRect {
+        let x = (style.size.width - metrics.textWidth) / 2
+        switch text {
+        case .headline: return CGRect(x: x, y: layout.headlineRect.minY, width: metrics.textWidth, height: layout.headlineRect.height)
+        case .subtitle: return CGRect(x: x, y: layout.subtitleRect.minY, width: metrics.textWidth, height: layout.subtitleRect.height)
+        case .badge: return CGRect(x: layout.badgeRect.minX, y: layout.badgeRect.minY, width: max(layout.badgeRect.width, metrics.textWidth * 0.4),
+                                   height: layout.badgeRect.height)
+        }
+    }
+
+    private func beginEditing(_ text: CanvasText, shot: Shot) {
+        draft = shot[keyPath: text.keyPath]
+        editing = text
+        DispatchQueue.main.async { editorFocused = true }
+    }
+
+    private func commitEdit(shot: Shot) {
+        guard let editing else { return }
+        self.editing = nil
+        var edited = shot
+        let text = editing == .headline ? draft : draft.replacingOccurrences(of: "\n", with: " ")
+        guard edited[keyPath: editing.keyPath] != text else { return }
+        edited[keyPath: editing.keyPath] = text
+        update(edited)
+    }
+
+    private func finishDrag(_ target: DragTarget, by translation: CGSize, callout: ShotRenderer.Callout, shot: Shot) {
+        var edited = shot
+        switch target {
+        case .ring:
+            let screen = callout.screen
+            guard screen.width > 0, screen.height > 0 else { return }
+            let moved = callout.highlight.offsetBy(dx: translation.width, dy: translation.height)
+            let unit = CGRect(x: (moved.minX - screen.minX) / screen.width, y: (moved.minY - screen.minY) / screen.height,
+                              width: moved.width / screen.width, height: moved.height / screen.height)
+            edited.calloutRegion = .custom
+            edited.calloutRect = shot.snappedCalloutRect(unit)
+        case .card:
+            let moved = callout.rect.offsetBy(dx: translation.width, dy: translation.height)
+            edited.calloutCardOffset = CGPoint(x: (moved.minX - callout.autoRect.minX) / style.size.width,
+                                               y: (moved.minY - callout.autoRect.minY) / style.size.height)
+        }
+        if edited != shot { update(edited) }
     }
 
     private var footerLine: some View {
@@ -184,6 +315,27 @@ struct PreviewPane: View {
         } catch { self.error = error.localizedDescription; preview = nil }
     }
 }
+
+/// Caption text that can be edited in place on the canvas.
+enum CanvasText {
+    case headline, subtitle, badge
+    var keyPath: WritableKeyPath<Shot, String> {
+        switch self { case .headline: \.headline; case .subtitle: \.subtitle; case .badge: \.badge }
+    }
+    var title: String {
+        switch self { case .headline: "Headline"; case .subtitle: "Subtitle"; case .badge: "Badge" }
+    }
+}
+
+/// The in-place caption editor is a few words on a small canvas; the Writing Tools panel would cover the device.
+private struct NoWritingTools: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(macOS 15.0, *) { content.writingToolsBehavior(.disabled) } else { content }
+    }
+}
+
+/// The Zoom callout part a drag moves.
+enum DragTarget { case ring, card }
 
 private struct RenderKey: Equatable {
     let shot: Shot?
