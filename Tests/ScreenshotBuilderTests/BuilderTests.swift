@@ -1752,7 +1752,7 @@ struct BuilderTests {
         json["shots"] = shots
         let loaded = try ShotDocument.decode(JSONSerialization.data(withJSONObject: json))
         let old = try #require(loaded.shots.first)
-        #expect(loaded.version == 4)
+        #expect(loaded.version == ShotDocument.currentVersion)
         #expect(loaded.style.composition == .stacked && old.composition == nil && old.stat == "")
         #expect(old.calloutRect == nil && old.calloutCardOffset == nil && old.calloutRegion == .auto)
         #expect(old.calloutMarker == .spotlight && old.lensStyle == .lens)
@@ -1820,7 +1820,7 @@ struct BuilderTests {
         shot.stat = "$0"
         document.shots = [shot, try fixture()]
         let loaded = try ShotDocument.decode(JSONEncoder().encode(document))
-        #expect(loaded.version == 4)
+        #expect(loaded.version == ShotDocument.currentVersion)
         #expect(loaded.style.composition == .overlay)
         #expect(loaded.shots[0].composition == .bigNumber && loaded.shots[0].stat == "$0")
         #expect(loaded.shots[1].composition == nil && loaded.shots[1].stat == "")

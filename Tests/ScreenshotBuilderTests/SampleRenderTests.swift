@@ -89,6 +89,22 @@ struct SampleRenderTests {
            let value = CaptionComposition.allCases.first(where: { raw == $0.rawValue || raw.lowercased() == "\($0)".lowercased() }) {
             document.style.composition = value
         }
+        // Decorations: SB_EYEBROW (an EyebrowMode raw value or case name), SB_APPNAME, SB_SECTIONS="1:Spending,3:Trips",
+        // SB_RULE=1, SB_SHAPES=1, SB_MONO=1.
+        if let raw = env["SB_EYEBROW"],
+           let value = EyebrowMode.allCases.first(where: { raw == $0.rawValue || raw.lowercased() == "\($0)".lowercased() }) {
+            document.style.decor.eyebrow = value
+        }
+        if let name = env["SB_APPNAME"] { document.style.decor.appName = name }
+        if env["SB_RULE"] == "1" { document.style.decor.rule = true }
+        if env["SB_SHAPES"] == "1" { document.style.decor.shapes = true }
+        if env["SB_MONO"] == "1" { document.style.decor.monoEyebrow = true }
+        for item in (env["SB_SECTIONS"] ?? "").split(separator: ",") {
+            let parts = item.split(separator: ":", maxSplits: 1)
+            if parts.count == 2, let n = Int(parts[0]), document.shots.indices.contains(n - 1) {
+                document.shots[n - 1].eyebrow = String(parts[1])
+            }
+        }
         // SB_ARRANGE: "vary" runs Vary layouts (compositions and arrangements), or an Arrangement raw value applies to every shot.
         if let raw = env["SB_ARRANGE"] {
             if raw == "vary" {

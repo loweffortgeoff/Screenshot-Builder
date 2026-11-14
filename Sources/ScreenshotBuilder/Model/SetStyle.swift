@@ -173,6 +173,49 @@ struct RGBColor: Codable, Equatable {
     var isValid: Bool { [red, green, blue].allSatisfy { $0.isFinite && (0...1).contains($0) } }
 }
 
+/// What the small label above the headline says.
+enum EyebrowMode: String, Codable, CaseIterable, Identifiable {
+    case off = "Off", appName = "App name", section = "Section", numbered = "Numbered"
+    var id: Self { self }
+}
+
+/// Decorations the layout places: an eyebrow label, a short accent rule, and two small accent shapes.
+struct Decor: Codable, Equatable {
+    var eyebrow: EyebrowMode = .off
+    /// The set-level text for App name eyebrows.
+    var appName = ""
+    /// Sets the eyebrow in the system monospace face (SF Mono), as the Scoreboard look does.
+    var monoEyebrow = false
+    /// A short accent bar at the start of the eyebrow row.
+    var rule = false
+    /// A pill and a rounded square in the top corner on the caption side.
+    var shapes = false
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        eyebrow = try c.decodeIfPresent(EyebrowMode.self, forKey: .eyebrow) ?? .off
+        appName = try c.decodeIfPresent(String.self, forKey: .appName) ?? ""
+        monoEyebrow = try c.decodeIfPresent(Bool.self, forKey: .monoEyebrow) ?? false
+        rule = try c.decodeIfPresent(Bool.self, forKey: .rule) ?? false
+        shapes = try c.decodeIfPresent(Bool.self, forKey: .shapes) ?? false
+    }
+
+    /// The eyebrow text for the shot at `index` (zero-based) in the set. Empty means no label.
+    func eyebrowLabel(for shot: Shot, index: Int) -> String {
+        let section = shot.eyebrow.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        switch eyebrow {
+        case .off: return ""
+        case .appName: return appName.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        case .section: return section
+        case .numbered:
+            let number = String(format: "%02d", index + 1)
+            return section.isEmpty ? number : "\(number) — \(section)"
+        }
+    }
+}
+
 struct SetStyle: Codable, Equatable {
     var preset: OutputPreset = .phone69
     var landscape = false
@@ -196,6 +239,7 @@ struct SetStyle: Codable, Equatable {
     var spanSet = false
     /// Fine film grain over gradient backgrounds.
     var grain = true
+    var decor = Decor()
 
     var size: CGSize {
         let base = preset.size
@@ -294,5 +338,6 @@ struct SetStyle: Codable, Equatable {
         shadow = try c.decodeIfPresent(Bool.self, forKey: .shadow) ?? false
         spanSet = try c.decodeIfPresent(Bool.self, forKey: .spanSet) ?? d.spanSet
         grain = try c.decodeIfPresent(Bool.self, forKey: .grain) ?? false
+        decor = try c.decodeIfPresent(Decor.self, forKey: .decor) ?? Decor()
     }
 }

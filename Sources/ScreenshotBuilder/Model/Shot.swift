@@ -36,6 +36,8 @@ struct Shot: Codable, Equatable, Identifiable {
     var composition: CaptionComposition?
     /// The hero figure for Big number, free text such as "2×", "10k", or "$0". Empty means the shot draws Stacked.
     var stat = ""
+    /// The shot's section label for Section and Numbered eyebrows, such as "Spending".
+    var eyebrow = ""
 
     init(id: UUID = UUID(), name: String, imageData: Data, headline: String = "", subtitle: String = "", accents: [String] = [],
          arrangement: Arrangement = .standard) {
@@ -63,6 +65,7 @@ struct Shot: Codable, Equatable, Identifiable {
         badge = try c.decodeIfPresent(String.self, forKey: .badge) ?? ""
         composition = try c.decodeIfPresent(CaptionComposition.self, forKey: .composition)
         stat = try c.decodeIfPresent(String.self, forKey: .stat) ?? ""
+        eyebrow = try c.decodeIfPresent(String.self, forKey: .eyebrow) ?? ""
         validate()
     }
 

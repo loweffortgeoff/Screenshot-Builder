@@ -36,11 +36,24 @@ enum ShotRenderer {
         var textColumn: CGRect = .zero
         /// Overlay: the frosted band the caption sits on.
         var panel: CGRect?
+        /// The eyebrow label above the headline, and the accent rule at the start of its row.
+        var eyebrow: NSAttributedString?
+        var eyebrowRect: CGRect = .zero
+        var ruleRect: CGRect = .zero
+        /// Small accent shapes in a top corner.
+        var shapes: [Shape] = []
 
         /// The front layer, for callers that place a single device.
         var device: DeviceFrame? { layers.last?.device }
         var cornerRadius: CGFloat { layers.last?.cornerRadius ?? 0 }
         var windowed: Bool { layers.last?.windowed ?? false }
+    }
+
+    /// A decorative accent shape. The pill takes the accent color and the square the text color, both at 70%.
+    struct Shape: Equatable {
+        enum Kind { case pill, square }
+        var rect: CGRect
+        var kind: Kind
     }
 
     /// One placed device (or bare capture), drawn rotated around its center.
@@ -204,11 +217,15 @@ enum ShotRenderer {
             var badgeRow = false
             /// Side by side and Text only: the headline size shared by the group, shrunk until every headline fits.
             var headScale: CGFloat = 1
+            /// Any shot in the group draws an eyebrow or the rule, so every shot reserves the eyebrow row.
+            var eyebrowRow = false
         }
         var height: CGFloat
         var lines: Int
         var badgeRow = false
         var groups: [CaptionComposition: Group] = [:]
+        /// Each shot's eyebrow text, numbered by its place in the set.
+        var eyebrows: [UUID: String] = [:]
 
         /// The band for shots drawn in `composition`, or nil when the set has none of them.
         func group(for composition: CaptionComposition) -> Group? { groups[composition] }
@@ -217,28 +234,44 @@ enum ShotRenderer {
     /// Height of the badge pill plus its gap to the headline.
     static func badgeRowHeight(_ metrics: CaptionMetrics) -> CGFloat { metrics.subSize * 1.5 + metrics.gap }
 
+    /// The eyebrow's type size: a little smaller than the subtitle.
+    static func eyebrowSize(_ metrics: CaptionMetrics) -> CGFloat { metrics.subSize * 0.8 }
+    /// Height of the eyebrow line plus its gap to what follows.
+    static func eyebrowRowHeight(_ metrics: CaptionMetrics) -> CGFloat { ceil(eyebrowSize(metrics) * 1.35 + metrics.gap * 0.7) }
+
+    /// Whether a shot with this eyebrow text draws anything in the eyebrow row. Text only draws no rule.
+    static func drawsEyebrowRow(label: String, style: SetStyle, composition: CaptionComposition) -> Bool {
+        !label.isEmpty || (style.decor.rule && composition != .textOnly)
+    }
+
     /// One band per composition in the set, each tall enough for its longest caption.
     static func captionBand(shots: [Shot], style: SetStyle) -> CaptionBand {
         var members: [CaptionComposition: [Shot]] = [:]
         for shot in shots { members[style.effectiveComposition(for: shot), default: []].append(shot) }
         if members.isEmpty { members[.stacked] = [] }
+        var eyebrows: [UUID: String] = [:]
+        for (index, shot) in shots.enumerated() { eyebrows[shot.id] = style.decor.eyebrowLabel(for: shot, index: index) }
         var groups: [CaptionComposition: CaptionBand.Group] = [:]
-        for (composition, shots) in members { groups[composition] = bandGroup(shots: shots, style: style, composition: composition) }
+        for (composition, shots) in members {
+            groups[composition] = bandGroup(shots: shots, style: style, composition: composition, eyebrows: eyebrows)
+        }
         let stacked = groups[.stacked] ?? CaptionBand.Group(height: 0, lines: 1)
-        return CaptionBand(height: stacked.height, lines: stacked.lines, badgeRow: stacked.badgeRow, groups: groups)
+        return CaptionBand(height: stacked.height, lines: stacked.lines, badgeRow: stacked.badgeRow, groups: groups, eyebrows: eyebrows)
     }
 
     /// Tall enough for the longest caption, never above the composition's allowed headline and subtitle lines.
-    private static func bandGroup(shots: [Shot], style: SetStyle, composition: CaptionComposition) -> CaptionBand.Group {
+    private static func bandGroup(shots: [Shot], style: SetStyle, composition: CaptionComposition,
+                                  eyebrows: [UUID: String]) -> CaptionBand.Group {
         let scale = headScale(for: shots, style: style, composition: composition)
         let metrics = CaptionMetrics(style: style, composition: composition, headScale: scale)
         let lines = min(metrics.headLines, shots.map { naturalLines(headlineText($0.headline, accents: $0.accents, style: style, size: metrics.headSize),
                                                                     width: metrics.textWidth) }.max() ?? 1)
         let needed = shots.map { captionHeight(shot: $0, style: style, metrics: metrics, lines: lines).total }.max() ?? 0
         let badgeRow = shots.contains { !$0.badge.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-        let extra = badgeRow ? badgeRowHeight(metrics) : 0
+        let eyebrowRow = shots.contains { drawsEyebrowRow(label: eyebrows[$0.id] ?? "", style: style, composition: composition) }
+        let extra = (badgeRow ? badgeRowHeight(metrics) : 0) + (eyebrowRow ? eyebrowRowHeight(metrics) : 0)
         return CaptionBand.Group(height: min(max(needed, 1), metrics.maxText) + metrics.statBlock + extra,
-                                 lines: max(1, lines), badgeRow: badgeRow, headScale: scale)
+                                 lines: max(1, lines), badgeRow: badgeRow, headScale: scale, eyebrowRow: eyebrowRow)
     }
 
     /// Side by side and Text only shrink their headline, in steps, until every headline in the group fits the measure
@@ -376,7 +409,11 @@ enum ShotRenderer {
         let badgeText = shot.badge.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
         let badgeRow = group?.badgeRow ?? !badgeText.isEmpty
         let badgeExtra = hasCaption && badgeRow ? Self.badgeRowHeight(metrics) : 0
-        let captionHeight = hasCaption ? (group?.height ?? (stacksCaption ? metrics.maxBand + badgeExtra : needed + badgeExtra)) : 0
+        let eyebrowLabel = captionBand?.eyebrows[shot.id] ?? style.decor.eyebrowLabel(for: shot, index: 0)
+        let eyebrowRow = group?.eyebrowRow ?? Self.drawsEyebrowRow(label: eyebrowLabel, style: style, composition: composition)
+        let eyebrowExtra = hasCaption && eyebrowRow ? Self.eyebrowRowHeight(metrics) : 0
+        let rowsExtra = badgeExtra + eyebrowExtra
+        let captionHeight = hasCaption ? (group?.height ?? (stacksCaption ? metrics.maxBand + rowsExtra : needed + rowsExtra)) : 0
         let separation = hasCaption ? metrics.separation : 0
         let top = margin * 1.25
         let spec = DeviceSpec.for(style.preset)
@@ -544,7 +581,8 @@ enum ShotRenderer {
         case .overlay: captionTop = (panel?.minY ?? 0) + panelPad
         }
         let stacked = composition == .stacked || composition == .bigNumber
-        let badgeY = (captionOnTop || !stacked ? captionTop : captionTop + max(0, captionHeight - needed - badgeExtra))
+        let rowsY = (captionOnTop || !stacked ? captionTop : captionTop + max(0, captionHeight - needed - rowsExtra))
+        let badgeY = rowsY + eyebrowExtra
         let textY = badgeY + badgeExtra
         let headY = textY + statExtra
         func textRect(width: CGFloat, y: CGFloat, height: CGFloat) -> CGRect {
@@ -563,6 +601,36 @@ enum ShotRenderer {
             let x = composition == .sideBySide ? sideColumnX : style.alignment == .center ? centered(pillWidth) : columnX
             badge = text
             badgeRect = CGRect(x: x, y: badgeY, width: pillWidth, height: pillHeight)
+        }
+        // The eyebrow row: an optional accent rule, then the label, on one line at the caption's alignment.
+        var eyebrow: NSAttributedString?
+        var eyebrowRect = CGRect.zero
+        var ruleRect = CGRect.zero
+        if hasCaption && eyebrowRow {
+            let drawsRule = style.decor.rule && composition != .textOnly
+            var size = Self.eyebrowSize(metrics)
+            func parts(_ size: CGFloat) -> (text: NSAttributedString?, rule: CGFloat, gap: CGFloat, width: CGFloat) {
+                let text = eyebrowLabel.isEmpty ? nil : Self.eyebrowText(eyebrowLabel.uppercased(), style: style, size: size)
+                let rule = drawsRule ? size * 1.6 : 0
+                let gap = drawsRule && text != nil ? size * 0.55 : 0
+                return (text, rule, gap, rule + gap + ceil(text?.size().width ?? 0))
+            }
+            var row = parts(size)
+            // A long label shrinks to fit the measure, down to 60% of its size.
+            while row.width > textWidth && size > Self.eyebrowSize(metrics) * 0.6 {
+                size *= 0.94
+                row = parts(size)
+            }
+            let x = composition == .sideBySide ? sideColumnX : style.alignment == .center ? centered(row.width) : columnX
+            let lineHeight = CaptionFont.lineHeight(Self.eyebrowFont(style: style, size: size))
+            if drawsRule {
+                let thickness = max(2, size * 0.14)
+                ruleRect = CGRect(x: x, y: rowsY + lineHeight / 2 - thickness / 2, width: row.rule, height: thickness)
+            }
+            if let text = row.text {
+                eyebrow = text
+                eyebrowRect = CGRect(x: x + row.rule + row.gap, y: rowsY, width: min(textWidth, ceil(text.size().width)), height: lineHeight)
+            }
         }
         // Big number: the stat shrinks to one line when it is too wide, and the shot warns if it still cannot fit.
         var stat: NSAttributedString?
@@ -825,6 +893,26 @@ enum ShotRenderer {
         }
         let rect = hasDevice ? (layers.last?.imageRect ?? base) : .zero
         let device = layers.last?.device
+        // Accent shapes: a pill and a rounded square in the top corner away from where the caption starts. They are
+        // left out when anything else would come within half a margin of them.
+        var shapes: [Shape] = []
+        if style.decor.shapes, hasCaption, composition != .textOnly, composition != .overlay {
+            let unit = min(size.width, size.height)
+            let box = CGSize(width: unit * 0.22, height: unit * 0.1)
+            let onLeft = composition == .sideBySide && sideCaptionRight
+            let origin = CGPoint(x: onLeft ? margin * 0.8 : size.width - margin * 0.8 - box.width, y: margin * 0.8)
+            let pill = CGRect(x: origin.x, y: origin.y, width: box.width * 0.62, height: box.height * 0.42)
+            let side = box.height * 0.55
+            let square = CGRect(x: origin.x + box.width - side, y: origin.y + box.height - side, width: side, height: side)
+            let area = pill.union(square).insetBy(dx: -margin * 0.5, dy: -margin * 0.5)
+            let taken = [Self.inkedRect(headline, in: headlineRect), Self.inkedRect(subtitle, in: subtitleRect),
+                         badgeRect, eyebrowRect, ruleRect, statRect]
+                + layers.map(\.bounds)
+                + [callout?.rect, callout?.highlight].compactMap { $0 }
+            if !taken.contains(where: { $0.width > 0 && $0.height > 0 && $0.intersects(area) }) {
+                shapes = [Shape(rect: pill, kind: .pill), Shape(rect: square, kind: .square)]
+            }
+        }
         let fit = rect.width / sourceSize.width
         var warnings: [String] = []
         if hasCaption && needed > metrics.maxBand + 0.5 { warnings.append("Caption is too long. Shorten the headline or subtitle before export.") }
@@ -864,9 +952,9 @@ enum ShotRenderer {
                            headline: headline, subtitle: subtitle, badge: badge, badgeRect: badgeRect, warnings: warnings,
                            advisories: advisories, layers: layers, callout: callout, composition: composition, stat: stat,
                            statRect: statRect,
-                           textColumn: CGRect(x: columnX, y: badgeY,
+                           textColumn: CGRect(x: columnX, y: rowsY,
                                               width: textWidth, height: max(0, captionHeight)),
-                           panel: panel)
+                           panel: panel, eyebrow: eyebrow, eyebrowRect: eyebrowRect, ruleRect: ruleRect, shapes: shapes)
     }
 
     // MARK: Contrast
@@ -945,6 +1033,12 @@ enum ShotRenderer {
         let companionSize = companion?.cgImage.map { CGSize(width: $0.width, height: $0.height) }
         let composition = compose(shot: shot, style: style, sourceSize: CGSize(width: source.width, height: source.height),
                                   captionBand: captionBand, companionSize: companionSize)
+        for shape in composition.shapes {
+            let radius = shape.kind == .pill ? shape.rect.height / 2 : shape.rect.height * 0.28
+            cg.addPath(CGPath(roundedRect: shape.rect, cornerWidth: radius, cornerHeight: radius, transform: nil))
+            cg.setFillColor((shape.kind == .pill ? style.accent : style.foreground).nsColor.withAlphaComponent(0.7).cgColor)
+            cg.fillPath()
+        }
         let unit = min(size.width, size.height)
         let pixelScale = CGFloat(width) / size.width
         let shadows: [(CGFloat, CGFloat, CGFloat)] = [(0.03, 0.09, 0.42), (0.008, 0.018, 0.32)]
@@ -1043,6 +1137,15 @@ enum ShotRenderer {
             cg.fillPath()
             let textSize = badge.size()
             badge.draw(at: CGPoint(x: pill.midX - textSize.width / 2, y: pill.midY - textSize.height / 2))
+        }
+        if style.layout.hasCaption {
+            if composition.ruleRect.width > 0 {
+                let rule = composition.ruleRect
+                cg.addPath(CGPath(roundedRect: rule, cornerWidth: rule.height / 2, cornerHeight: rule.height / 2, transform: nil))
+                cg.setFillColor(style.accent.nsColor.cgColor)
+                cg.fillPath()
+            }
+            composition.eyebrow?.draw(with: composition.eyebrowRect, options: [.usesLineFragmentOrigin, .usesFontLeading])
         }
         if let stat = composition.stat {
             stat.draw(with: composition.statRect, options: [.usesLineFragmentOrigin, .usesFontLeading])
@@ -1352,6 +1455,20 @@ enum ShotRenderer {
         return (statText(text, style: style, size: size * 0.5), false)
     }
 
+    /// The eyebrow face: the caption family in bold, or SF Mono when the set asks for it.
+    static func eyebrowFont(style: SetStyle, size: CGFloat) -> NSFont {
+        style.decor.monoEyebrow ? NSFont.monospacedSystemFont(ofSize: size, weight: .semibold)
+                                : style.font.font(size: size, weight: CaptionWeight.bold)
+    }
+
+    /// Eyebrow text: tracked capitals in the accent color.
+    static func eyebrowText(_ text: String, style: SetStyle, size: CGFloat) -> NSAttributedString {
+        NSAttributedString(string: text, attributes: [
+            .font: eyebrowFont(style: style, size: size),
+            .foregroundColor: style.accent.nsColor,
+            .kern: size * 0.08])
+    }
+
     static func badgeText(_ text: String, style: SetStyle, size: CGFloat) -> NSAttributedString {
         let a = style.accent
         let luminance = 0.2126 * a.red + 0.7152 * a.green + 0.0722 * a.blue
@@ -1379,6 +1496,15 @@ enum ShotRenderer {
     }
 
     /// Narrowest width that keeps the same line count, so lines balance and no word sits alone.
+    /// The part of a text rect the drawn lines cover. Text rects span the measure, so a short line inks far less.
+    static func inkedRect(_ text: NSAttributedString, in rect: CGRect) -> CGRect {
+        guard rect.width > 0, rect.height > 0, text.length > 0 else { return .zero }
+        let width = ceil(text.boundingRect(with: CGSize(width: rect.width, height: .greatestFiniteMagnitude),
+                                           options: [.usesLineFragmentOrigin, .usesFontLeading]).width)
+        let paragraph = text.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
+        return CGRect(x: paragraph?.alignment == .center ? rect.midX - width / 2 : rect.minX, y: rect.minY, width: width, height: rect.height)
+    }
+
     static func balancedWidth(_ text: NSAttributedString, maxWidth: CGFloat) -> CGFloat {
         guard text.length > 0 else { return maxWidth }
         let target = measuredHeight(text, width: maxWidth)
