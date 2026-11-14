@@ -29,11 +29,14 @@ struct SampleRenderTests {
             // Optional review knobs: SB_THEME=<theme name>, SB_SPAN=1.
             if let name = env["SB_THEME"], let theme = Theme.all.first(where: { $0.name == name }) { document.style.apply(theme) }
             document.style.spanSet = env["SB_SPAN"] == "1"
-            // More knobs: SB_PRESET=<OutputPreset raw value>, SB_FINISH, SB_LANDSCAPE=1, SB_FRAME=<FrameStyle raw value>.
+            // More knobs: SB_PRESET=<OutputPreset raw value>, SB_FINISH, SB_LANDSCAPE=1, SB_FRAME=<FrameStyle raw value or case name, such as windowOnly>.
             if let raw = env["SB_PRESET"], let preset = OutputPreset(rawValue: raw) { document.style.preset = preset }
             if let finish = env["SB_FINISH"] { document.style.finish = finish }
             document.style.landscape = env["SB_LANDSCAPE"] == "1"
-            if let raw = env["SB_FRAME"], let frame = FrameStyle(rawValue: raw) { document.style.frameStyle = frame }
+            if let raw = env["SB_FRAME"],
+               let frame = FrameStyle.allCases.first(where: { raw == $0.rawValue || raw.lowercased() == "\($0)".lowercased() }) {
+                document.style.frameStyle = frame
+            }
             // SB_CAPTIONS: a file of "headline|subtitle" lines, one per capture, overrides the built-in captions.
             let captions: [(String, String)] = env["SB_CAPTIONS"].flatMap { try? String(contentsOfFile: $0, encoding: .utf8) }
                 .map { $0.split(separator: "\n").map { line in
@@ -64,6 +67,12 @@ struct SampleRenderTests {
             if let raw = env["SB_REGION"], let value = CalloutRegion(rawValue: raw) { document.shots[index].calloutRegion = value }
             if let raw = env["SB_MARKER"], let value = CalloutMarker(rawValue: raw) { document.shots[index].calloutMarker = value }
             if let raw = env["SB_LENS"], let value = LensStyle(rawValue: raw) { document.shots[index].lensStyle = value }
+            // SB_MACFIT: auto, fill, or window (or the raw value). SB_CROP: 0...1.
+            if let raw = env["SB_MACFIT"]?.lowercased(),
+               let value = MacFit.allCases.first(where: { raw == "\($0)" || raw == $0.rawValue.lowercased() }) {
+                document.shots[index].macFit = value
+            }
+            if let raw = env["SB_CROP"], let value = Double(raw) { document.shots[index].macCropPosition = value }
         }
         if let raw = env["SB_LAYOUT"], let value = CaptionLayout(rawValue: raw) { document.style.layout = value }
         if let raw = env["SB_ALIGN"], let value = CaptionAlignment(rawValue: raw) { document.style.alignment = value }

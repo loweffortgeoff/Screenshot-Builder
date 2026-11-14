@@ -2,7 +2,8 @@ import CoreGraphics
 
 /// How the screenshot is presented.
 enum FrameStyle: String, Codable, CaseIterable, Identifiable {
-    case none = "None", rounded = "Rounded", device = "Device"
+    /// `windowOnly` is a bare Mac window with its own corners and shadow. Every other preset draws it as `rounded`.
+    case none = "None", rounded = "Rounded", device = "Device", windowOnly = "Window only"
     var id: Self { self }
 }
 

@@ -44,6 +44,18 @@ enum ShotRenderer {
         var frame: CGRect
         /// Draws the Duo companion capture instead of the shot's own.
         var usesCompanion = false
+        /// A bare Mac window on the canvas: its own corners and a soft window shadow, no laptop.
+        var windowOnly = false
+        /// Fill screen: `imageRect` is the whole scaled capture, larger than the screen on one axis. This is the screen
+        /// opening that stays visible; the device clips the overflow.
+        var clip: CGRect?
+
+        /// The part of the capture that shows, in unit coordinates of the whole capture (top-left origin).
+        var visibleUnit: CGRect {
+            guard let clip else { return CGRect(x: 0, y: 0, width: 1, height: 1) }
+            return CGRect(x: (clip.minX - imageRect.minX) / imageRect.width, y: (clip.minY - imageRect.minY) / imageRect.height,
+                          width: clip.width / imageRect.width, height: clip.height / imageRect.height)
+        }
 
         /// Axis-aligned bounds after rotation.
         var bounds: CGRect {
@@ -56,14 +68,16 @@ enum ShotRenderer {
     /// A magnified card of one band of the capture.
     struct Callout {
         var rect: CGRect
-        /// The magnified part of the capture, in unit coordinates (top-left origin).
+        /// The magnified part of the capture, in unit coordinates of the whole capture (top-left origin), always inside
+        /// the part that shows when a Mac capture is cropped to fill the screen.
         var source: CGRect
         var cornerRadius: CGFloat
         /// Where that part sits on the device screen, ringed so the card reads as a zoom of it.
         var highlight: CGRect = .zero
         var marker: CalloutMarker = .spotlight
         var lens: LensStyle = .lens
-        /// The device screen, so the editor can turn a dragged ring back into a unit rect.
+        /// The whole scaled capture (the device screen unless a Mac capture is cropped), so the editor can turn a
+        /// dragged ring back into a unit rect of the capture.
         var screen: CGRect = .zero
         /// The card's automatic place, before the user's offset, so the editor can compute a new offset.
         var autoRect: CGRect = .zero
@@ -192,6 +206,10 @@ enum ShotRenderer {
         let top = margin * 1.25
         let spec = DeviceSpec.for(style.preset)
         let isPad = spec.family == .pad
+        // Window only is a Mac frame; every other preset draws it as Rounded.
+        let frameStyle: FrameStyle = style.frameStyle == .windowOnly && spec.family != .laptop ? .rounded : style.frameStyle
+        // Auto fills the screen with a display capture. The pixel check runs once, and only where it can matter.
+        let displayCapture = spec.family == .laptop && frameStyle == .device && shot.macFit == .auto && shot.isDisplayCapture
         var imageArea = CGRect(x: margin, y: top + (style.layout.captionOnTop ? captionHeight + separation : 0),
                                width: size.width - margin * 2,
                                height: size.height - top - margin - captionHeight - separation)
@@ -232,37 +250,56 @@ enum ShotRenderer {
         let companionSize = companionSize ?? sourceSize
         /// Builds a layer that fills `box` with a device (or the bare capture) and fits `capture` inside.
         func layer(in box: CGRect, capture: CGSize, rotation: CGFloat = 0, companion: Bool = false) -> Layer {
-            switch style.frameStyle {
+            switch frameStyle {
             case .device:
                 let frame = DeviceFrame(spec: spec, landscape: rotatedDevice, rect: box)
                 let content = frame.contentRect
                 func mismatch(_ r: CGRect) -> CGFloat {
                     abs(capture.width / capture.height - r.width / r.height) / (r.width / r.height)
                 }
-                if spec.family == .laptop && mismatch(frame.screenRect) <= 0.01 {
-                    // A native full-display capture (menu bar included): fill the opening; the notch covers the menu bar.
-                    return Layer(device: frame, imageRect: Self.fit(capture, in: frame.screenRect), rotation: rotation,
-                                 frame: box, usesCompanion: companion)
-                } else if spec.family == .laptop && mismatch(content) > 0.03 {
-                    // A window capture, not a full-screen one: float it on a wallpaper with room around it.
-                    let r = Self.fit(capture, in: content.insetBy(dx: content.width * 0.035, dy: content.height * 0.045))
-                    return Layer(device: frame, imageRect: r, cornerRadius: r.width * 0.008, windowed: true,
-                                 rotation: rotation, frame: box, usesCompanion: companion)
+                if spec.family == .laptop {
+                    // A Duo companion has no fit setting of its own, so it follows its aspect, as before.
+                    let fit = companion ? MacFit.auto : shot.macFit
+                    let fills = switch fit {
+                    case .window: false
+                    case .fill: true
+                    case .auto: mismatch(frame.screenRect) <= 0.01 || (!companion && displayCapture)
+                    }
+                    if fills {
+                        // Cover the screen opening and crop the overflow; the crop position picks what stays visible.
+                        // A native full-display capture (menu bar included) has none to crop, and the notch covers its menu bar.
+                        let screen = frame.screenRect
+                        let k = max(screen.width / capture.width, screen.height / capture.height)
+                        var r = CGRect(x: screen.minX, y: screen.minY, width: capture.width * k, height: capture.height * k)
+                        let position = CGFloat(min(max(shot.macCropPosition, 0), 1))
+                        if r.width - screen.width > 0.01 { r.origin.x -= (r.width - screen.width) * position }
+                        if r.height - screen.height > 0.01 { r.origin.y -= (r.height - screen.height) * position }
+                        return Layer(device: frame, imageRect: r, rotation: rotation, frame: box, usesCompanion: companion, clip: screen)
+                    }
+                    if fit == .window || mismatch(content) > 0.03 {
+                        // A window capture, not a full-screen one: float it on a wallpaper with room around it.
+                        let r = Self.fit(capture, in: content.insetBy(dx: content.width * 0.035, dy: content.height * 0.045))
+                        return Layer(device: frame, imageRect: r, cornerRadius: r.width * 0.008, windowed: true,
+                                     rotation: rotation, frame: box, usesCompanion: companion)
+                    }
                 }
                 // Captures keep their proportions; a mismatched capture sits on black glass.
                 return Layer(device: frame, imageRect: Self.fit(capture, in: content), rotation: rotation,
                              frame: box, usesCompanion: companion)
-            case .rounded, .none:
+            case .rounded, .none, .windowOnly:
                 let r = Self.fit(capture, in: box)
                 var radius: CGFloat = 0
-                if style.frameStyle == .rounded {
+                if frameStyle == .windowOnly {
+                    radius = r.width * 0.008
+                } else if frameStyle == .rounded {
                     let ratio = spec.screenRadius > 0 ? spec.screenRadius / min(spec.screen.width, spec.screen.height) : 0.04
                     radius = min(r.width, r.height) * ratio
                 }
-                return Layer(device: nil, imageRect: r, cornerRadius: radius, rotation: rotation, frame: r, usesCompanion: companion)
+                return Layer(device: nil, imageRect: r, cornerRadius: radius, rotation: rotation, frame: r,
+                             usesCompanion: companion, windowOnly: frameStyle == .windowOnly)
             }
         }
-        let objectAspect = style.frameStyle == .device ? DeviceFrame.outerSize(spec, landscape: rotatedDevice) : sourceSize
+        let objectAspect = frameStyle == .device ? DeviceFrame.outerSize(spec, landscape: rotatedDevice) : sourceSize
         let base = place(objectAspect)
         func scaled(_ r: CGRect, _ k: CGFloat, dx: CGFloat = 0, dy: CGFloat = 0) -> CGRect {
             CGRect(x: r.midX - r.width * k / 2 + dx, y: r.midY - r.height * k / 2 + dy, width: r.width * k, height: r.height * k)
@@ -373,25 +410,46 @@ enum ShotRenderer {
                 }
                 let device = layer(in: box, capture: sourceSize)
                 let screen = device.imageRect
+                // A cropped Mac capture shows only part of itself. Unit coordinates stay relative to the whole
+                // capture, and every region is kept inside the part that shows.
+                let visible = device.visibleUnit
+                let cropped = device.clip != nil
+                let shown = device.clip ?? screen
                 let fitted = safe.width / (zoom * screen.width)
-                let crop: CGRect
+                var crop: CGRect
                 if let custom {
                     // The user chose this region; never narrow it. Shrink the device or lower the zoom instead.
                     if custom.width > fitted { return (device, .zero, .zero, .zero, false) }
                     crop = custom
+                    if cropped {
+                        crop.size.width = min(crop.width, visible.width)
+                        crop.size.height = min(crop.height, visible.height)
+                        crop.origin.x = min(max(crop.minX, visible.minX), visible.maxX - crop.width)
+                        crop.origin.y = min(max(crop.minY, visible.minY), visible.maxY - crop.height)
+                    }
                 } else {
-                    let band = shot.calloutBand(maxHeight: maxHeight)
-                    let narrow = fitted < 1
+                    var band = shot.calloutBand(maxHeight: maxHeight)
+                    if cropped {
+                        let height = band.bottom - band.top
+                        if band.top < visible.minY { band = (visible.minY, visible.minY + height) }
+                        if band.bottom > visible.maxY { band = (max(visible.minY, visible.maxY - height), visible.maxY) }
+                    }
+                    let narrow = fitted < visible.width
                     if narrow && !allowNarrow { return (device, .zero, .zero, .zero, false) }
-                    let cropX: CGFloat = narrow ? 0.02 : 0
-                    let cropRight = narrow ? shot.calloutRightEdge(top: band.top, bottom: band.bottom, limit: min(cropX + fitted, 1)) : 1
+                    let cropX: CGFloat = narrow ? visible.minX + 0.02 * visible.width : visible.minX
+                    var cropRight = visible.maxX
+                    if narrow {
+                        let limit = min(cropX + fitted, visible.maxX)
+                        let edge = shot.calloutRightEdge(top: band.top, bottom: band.bottom, limit: limit)
+                        cropRight = edge > cropX ? edge : limit
+                    }
                     crop = CGRect(x: cropX, y: band.top, width: cropRight - cropX, height: band.bottom - band.top)
                 }
                 let highlight = CGRect(x: screen.minX + crop.minX * screen.width, y: screen.minY + crop.minY * screen.height,
                                        width: crop.width * screen.width, height: crop.height * screen.height)
                 let cardWidth = zoom * highlight.width
                 let cardHeight = cardWidth * (crop.height * sourceSize.height) / (crop.width * sourceSize.width)
-                var cardX = min(screen.maxX - cardWidth * 0.4, safe.maxX - cardWidth)
+                var cardX = min(shown.maxX - cardWidth * 0.4, safe.maxX - cardWidth)
                 cardX = max(cardX, safe.minX)
                 // Beside the source, on the side with more room; a closer gap before overlapping the ring by a sliver.
                 let below = safe.maxY - highlight.maxY >= highlight.minY - safe.minY
@@ -505,6 +563,17 @@ enum ShotRenderer {
                 advisories.append("This capture is shaped for a different device, so it shows black bars in the \(device.spec.name) frame. Use a matching capture, or the Rounded frame.")
             }
         }
+        if let front = layers.last, front.device?.spec.family == .laptop, !front.usesCompanion {
+            if let clip = front.clip {
+                let across = max(1 - clip.width / front.imageRect.width, 1 - clip.height / front.imageRect.height)
+                let axis = clip.width < front.imageRect.width - 0.01 ? "width" : "height"
+                if across >= 0.005 {
+                    advisories.append("Mac display capture: fills the screen, \(Int((across * 100).rounded()))% of the \(axis) cropped.")
+                }
+            } else if shot.macFit == .window {
+                advisories.append("Window capture: floats on the wallpaper.")
+            }
+        }
         return Composition(imageRect: rect,
                            headlineRect: headlineRect, subtitleRect: subtitleRect,
                            headline: headline, subtitle: subtitle, badge: badge, badgeRect: badgeRect, warnings: warnings,
@@ -596,8 +665,8 @@ enum ShotRenderer {
                 cg.rotate(by: layer.rotation)
                 cg.translateBy(x: -layer.frame.midX, y: -layer.frame.midY)
             }
-            let captureCastsShadow = style.shadow && hasAlpha && layer.device == nil
-            if style.shadow && !captureCastsShadow {
+            let captureCastsShadow = style.shadow && hasAlpha && layer.device == nil && !layer.windowOnly
+            if style.shadow && !captureCastsShadow && !layer.windowOnly {
                 // Two shadows: a wide ambient one and a tight contact one. Offsets are in device pixels.
                 for (offset, blur, alpha) in shadows {
                     cg.saveGState()
@@ -627,6 +696,9 @@ enum ShotRenderer {
                 device.draw(in: cg, finish: DeviceFinish.named(style.finish, for: device.spec.family), drawScreen: screen)
             } else if captureCastsShadow {
                 drawCaptureWithShadow(clip: silhouette, offset: unit * shadows[0].0, blur: unit * shadows[0].1, alpha: shadows[0].2)
+            } else if layer.windowOnly && style.shadow {
+                // The same soft shadow a floating window gets, cast from the window's own pixels.
+                drawCaptureWithShadow(clip: silhouette, offset: layer.imageRect.height * 0.012, blur: layer.imageRect.height * 0.05, alpha: 0.5)
             } else {
                 cg.saveGState()
                 cg.addPath(silhouette)

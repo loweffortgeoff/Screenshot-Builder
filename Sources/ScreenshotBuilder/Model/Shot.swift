@@ -20,10 +20,16 @@ struct Shot: Codable, Equatable, Identifiable {
     var calloutMarker: CalloutMarker = .spotlight
     /// How a Zoom callout joins its card to the source.
     var lensStyle: LensStyle = .lens
-    /// The magnified part of the capture when the region is Custom, in unit coordinates (top-left origin).
+    /// The magnified part of the capture when the region is Custom, in unit coordinates of the whole capture (top-left
+    /// origin). When a Mac capture is cropped to fill the screen, the renderer keeps the region inside the visible part.
     var calloutRect: CGRect?
     /// How far the user dragged the Zoom card from its automatic place, in units of the canvas size.
     var calloutCardOffset: CGPoint?
+    /// How a Mac capture sits in the laptop screen. Other presets ignore it.
+    var macFit: MacFit = .auto
+    /// Which part of a cropped Mac capture stays visible: 0 is the left (or top) edge, 1 the right (or bottom).
+    /// Read clamped to 0...1.
+    var macCropPosition: Double = 0.5
     /// Optional short label drawn as an accent pill above the headline, such as "NEW".
     var badge = ""
 
@@ -48,6 +54,8 @@ struct Shot: Codable, Equatable, Identifiable {
         lensStyle = try c.decodeIfPresent(LensStyle.self, forKey: .lensStyle) ?? .lens
         calloutRect = try c.decodeIfPresent(CGRect.self, forKey: .calloutRect)
         calloutCardOffset = try c.decodeIfPresent(CGPoint.self, forKey: .calloutCardOffset)
+        macFit = try c.decodeIfPresent(MacFit.self, forKey: .macFit) ?? .auto
+        macCropPosition = try c.decodeIfPresent(Double.self, forKey: .macCropPosition) ?? 0.5
         badge = try c.decodeIfPresent(String.self, forKey: .badge) ?? ""
     }
 
@@ -100,6 +108,12 @@ enum Arrangement: String, Codable, CaseIterable, Identifiable {
     }
     /// The curated sequence "Vary layouts" assigns, in order.
     static let variedSequence: [Arrangement] = [.tiltRight, .duo, .callout, .heroLeft, .tiltLeft, .standard, .heroRight, .duo, .callout, .tiltRight]
+}
+
+/// How a Mac capture meets the laptop screen. Auto fills the screen for a display capture and floats a window.
+enum MacFit: String, Codable, CaseIterable, Identifiable {
+    case auto = "Auto", fill = "Fill screen", window = "Window"
+    var id: Self { self }
 }
 
 enum CalloutRegion: String, Codable, CaseIterable, Identifiable {
@@ -169,6 +183,38 @@ extension Shot {
     }
 
     var contentBlocks: [ContentBlock] { Shot.contentBlocks(profile: rowProfile) }
+
+    nonisolated(unsafe) private static let displayCaptures = NSCache<NSData, NSNumber>()
+
+    /// A full-display capture: all four corners opaque (a window shot has transparent rounded corners), at least
+    /// 1440 px tall, and wider than 1.5:1. The decision comes from the capture's pixels, so it holds for any alpha format.
+    var isDisplayCapture: Bool {
+        let key = imageData as NSData
+        if let hit = Shot.displayCaptures.object(forKey: key) { return hit.boolValue }
+        let result = detectDisplayCapture()
+        Shot.displayCaptures.setObject(NSNumber(value: result), forKey: key)
+        return result
+    }
+
+    private func detectDisplayCapture() -> Bool {
+        guard let image = cgImage, image.height >= 1440, Double(image.width) > Double(image.height) * 1.5 else { return false }
+        // A few pixels in from each corner clears an anti-aliased edge but stays inside a window's rounded corner.
+        let inset = 2
+        let points = [(inset, inset), (image.width - 1 - inset, inset),
+                      (inset, image.height - 1 - inset), (image.width - 1 - inset, image.height - 1 - inset)]
+        var pixel = [UInt8](repeating: 0, count: 4)
+        return points.allSatisfy { x, y in
+            guard let one = image.cropping(to: CGRect(x: x, y: y, width: 1, height: 1)) else { return false }
+            return pixel.withUnsafeMutableBytes { buffer -> Bool in
+                guard let context = CGContext(data: buffer.baseAddress, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                                              space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+                context.clear(CGRect(x: 0, y: 0, width: 1, height: 1))
+                context.draw(one, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+                return buffer[3] >= 250
+            }
+        }
+    }
 
     /// A dragged Zoom region, tidied: horizontal extent kept, top and bottom moved into the gaps between content blocks.
     func snappedCalloutRect(_ rect: CGRect) -> CGRect {

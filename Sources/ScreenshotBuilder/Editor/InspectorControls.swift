@@ -124,7 +124,7 @@ struct FrameDiagram: View {
                 let screen = outer.insetBy(dx: 2.5, dy: 2.5)
                 context.fill(Path(roundedRect: screen, cornerRadius: radius - 2), with: .color(.accentColor.opacity(0.35)))
             } else {
-                context.fill(Path(roundedRect: outer, cornerRadius: frame == .rounded ? radius * 0.6 : 0), with: .color(.accentColor.opacity(0.35)))
+                context.fill(Path(roundedRect: outer, cornerRadius: frame == .rounded || frame == .windowOnly ? radius * 0.6 : 0), with: .color(.accentColor.opacity(0.35)))
             }
         }
         .accessibilityHidden(true)

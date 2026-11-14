@@ -899,4 +899,191 @@ struct BuilderTests {
         #expect(try pixels(nil) == pixels(1))
         #expect(try pixels(1.2) != pixels(1))
     }
+
+    // MARK: Mac fit, crop, and Window only
+
+    /// A PNG capture with an alpha channel. `clearCorners` cuts a transparent square from each corner, like a window shot.
+    private func macShot(width: Int, height: Int, clearCorners: Bool = false) throws -> Shot {
+        let context = try #require(CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.setFillColor(CGColor(red: 0.2, green: 0.4, blue: 0.9, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        if clearCorners {
+            for x in [0, width - 24] { for y in [0, height - 24] { context.clear(CGRect(x: x, y: y, width: 24, height: 24)) } }
+        }
+        let image = try #require(context.makeImage())
+        let png = try #require(NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]))
+        return Shot(name: "Mac", imageData: png)
+    }
+
+    private func macStyle(_ frame: FrameStyle = .device) -> SetStyle {
+        var style = SetStyle()
+        style.preset = .mac
+        style.frameStyle = frame
+        return style
+    }
+
+    private func compose(_ shot: Shot, _ style: SetStyle) throws -> ShotRenderer.Composition {
+        let image = try #require(shot.cgImage)
+        return ShotRenderer.compose(shot: shot, style: style, sourceSize: CGSize(width: image.width, height: image.height))
+    }
+
+    @Test func macDisplayCaptureFillsTheScreen() throws {
+        let shot = try macShot(width: 3440, height: 1440)
+        #expect(shot.isDisplayCapture)
+        let c = try compose(shot, macStyle())
+        let layer = try #require(c.layers.last)
+        let screen = try #require(c.device?.screenRect)
+        #expect(!c.windowed)
+        #expect(layer.clip == screen)
+        #expect(layer.imageRect.insetBy(dx: -0.5, dy: -0.5).contains(screen))
+        #expect(abs(layer.imageRect.height - screen.height) < 0.5)
+        let cropped = 1 - layer.visibleUnit.width
+        #expect(cropped > 0.3 && cropped <= 0.40, "cropped \(cropped)")
+        #expect(c.advisories.contains { $0.contains("fills the screen") && $0.contains("% of the width cropped") })
+    }
+
+    @Test func macCropPositionShowsLeftCenterRight() throws {
+        var shot = try macShot(width: 3440, height: 1440)
+        let style = macStyle()
+        shot.macCropPosition = 0
+        let left = try #require(try compose(shot, style).layers.last)
+        #expect(left.visibleUnit.minX == 0 && abs(left.imageRect.minX - left.clip!.minX) < 0.001)
+        shot.macCropPosition = 0.5
+        let middle = try #require(try compose(shot, style).layers.last)
+        #expect(abs(middle.visibleUnit.midX - 0.5) < 0.0001)
+        shot.macCropPosition = 1
+        let right = try #require(try compose(shot, style).layers.last)
+        #expect(abs(right.visibleUnit.maxX - 1) < 0.0001 && abs(right.imageRect.maxX - right.clip!.maxX) < 0.001)
+        // Out-of-range positions clamp.
+        shot.macCropPosition = 7
+        #expect(abs(try #require(try compose(shot, style).layers.last).visibleUnit.maxX - 1) < 0.0001)
+    }
+
+    @Test func macNativeDisplayFillsWithNoCrop() throws {
+        let shot = try macShot(width: 2560, height: 1664)
+        let c = try compose(shot, macStyle())
+        let layer = try #require(c.layers.last)
+        let screen = try #require(c.device?.screenRect)
+        #expect(layer.clip == screen)
+        #expect(abs(layer.imageRect.width - screen.width) < 0.5 && abs(layer.imageRect.height - screen.height) < 0.5)
+        #expect(layer.visibleUnit.width > 0.999 && layer.visibleUnit.height > 0.999)
+        #expect(!c.advisories.contains { $0.contains("cropped") })
+    }
+
+    @Test func macTransparentCornersFloatAsWindow() throws {
+        // Same shape as a display, but a window shot has clear corners.
+        let window = try macShot(width: 3440, height: 1440, clearCorners: true)
+        #expect(!window.isDisplayCapture)
+        #expect(try compose(window, macStyle()).windowed)
+        // Too small to be a display capture, and not the screen's shape.
+        let small = try macShot(width: 1140, height: 780)
+        #expect(!small.isDisplayCapture)
+        #expect(try compose(small, macStyle()).windowed)
+        // A tall portrait capture is never a display capture.
+        #expect(try !macShot(width: 1600, height: 2400).isDisplayCapture)
+    }
+
+    @Test func macFitOverridesAuto() throws {
+        var display = try macShot(width: 3440, height: 1440)
+        display.macFit = .window
+        let floated = try compose(display, macStyle())
+        #expect(floated.windowed && floated.layers.last?.clip == nil)
+        #expect(floated.advisories.contains { $0.contains("floats on the wallpaper") })
+        var window = try macShot(width: 1140, height: 780)
+        window.macFit = .fill
+        let filled = try compose(window, macStyle())
+        let screen = try #require(filled.device?.screenRect)
+        #expect(!filled.windowed && filled.layers.last?.clip == screen)
+        #expect(filled.layers.last!.imageRect.insetBy(dx: -0.5, dy: -0.5).contains(screen))
+    }
+
+    @Test func macFitAndCropDecodeDefaults() throws {
+        let original = try macShot(width: 40, height: 40)
+        var object = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(original)) as? [String: Any])
+        object.removeValue(forKey: "macFit")
+        object.removeValue(forKey: "macCropPosition")
+        let old = try JSONDecoder().decode(Shot.self, from: JSONSerialization.data(withJSONObject: object))
+        #expect(old.macFit == .auto && old.macCropPosition == 0.5)
+        var changed = original
+        changed.macFit = .fill
+        changed.macCropPosition = 0.25
+        let again = try JSONDecoder().decode(Shot.self, from: JSONEncoder().encode(changed))
+        #expect(again.macFit == .fill && again.macCropPosition == 0.25)
+    }
+
+    @Test func windowOnlyDrawsNoLaptopOnMacAndActsRoundedElsewhere() throws {
+        let shot = try macShot(width: 1440, height: 920)
+        let image = CGSize(width: 1440, height: 920)
+        var style = macStyle(.windowOnly)
+        style.layout = .imageOnly
+        style.grain = false
+        style.shadow = false
+        style.background = .solid(RGBColor(1, 0, 0))
+        let mac = try compose(shot, style)
+        let layer = try #require(mac.layers.last)
+        #expect(mac.device == nil && layer.windowOnly && !layer.windowed)
+        #expect(abs(layer.cornerRadius - layer.imageRect.width * 0.008) < 0.0001)
+        var rounded = style
+        rounded.frameStyle = .rounded
+        #expect(try compose(shot, rounded).imageRect == mac.imageRect)
+        // The window sits on the canvas background: no laptop pixels, only the capture and the background.
+        let bitmap = try ShotRenderer.render(shot: shot, style: style)
+        let inside = try #require(bitmap.colorAt(x: Int(layer.imageRect.midX), y: Int(layer.imageRect.midY))?.usingColorSpace(.sRGB))
+        #expect(inside.blueComponent > 0.8 && inside.redComponent < 0.4)
+        for point in [(8, 8), (Int(style.size.width) - 8, Int(style.size.height) - 8), (Int(style.size.width) / 2, Int(style.size.height) - 8)] {
+            let color = try #require(bitmap.colorAt(x: point.0, y: point.1)?.usingColorSpace(.sRGB))
+            #expect(color.redComponent > 0.95 && color.blueComponent < 0.05, "background at \(point)")
+        }
+        // With a shadow, the window casts it onto the background below its edge.
+        style.shadow = true
+        let shadowed = try ShotRenderer.render(shot: shot, style: style)
+        let below = try #require(shadowed.colorAt(x: Int(layer.imageRect.midX), y: Int(layer.imageRect.maxY) + 6)?.usingColorSpace(.sRGB))
+        #expect(below.redComponent < 0.95)
+        // Other presets draw Window only exactly like Rounded.
+        for preset in [OutputPreset.phone69, .pad13] {
+            var windowOnly = style
+            windowOnly.preset = preset
+            var plain = windowOnly
+            plain.frameStyle = .rounded
+            let a = ShotRenderer.compose(shot: shot, style: windowOnly, sourceSize: image)
+            let b = ShotRenderer.compose(shot: shot, style: plain, sourceSize: image)
+            #expect(a.imageRect == b.imageRect && a.cornerRadius == b.cornerRadius && a.layers.last?.windowOnly == false)
+            #expect(try ShotRenderer.render(shot: shot, style: windowOnly).representation(using: .png, properties: [:])
+                    == ShotRenderer.render(shot: shot, style: plain).representation(using: .png, properties: [:]))
+        }
+    }
+
+    @Test func zoomOnCroppedMacCaptureStaysInsideTheVisibleScreen() throws {
+        for position in [0.0, 0.5, 1.0] {
+            for region in [CalloutRegion.auto, .custom] {
+                var shot = try macShot(width: 3440, height: 1440)
+                shot.arrangement = .callout
+                shot.macFit = .fill
+                shot.macCropPosition = position
+                shot.calloutRegion = region
+                if region == .custom { shot.calloutRect = CGRect(x: 0.02, y: 0.4, width: 0.2, height: 0.15) }
+                for layout in [CaptionLayout.imageOnly, .below] {
+                    var style = macStyle()
+                    style.layout = layout
+                    let c = try compose(shot, style)
+                    let callout = try #require(c.callout)
+                    let layer = try #require(c.layers.last)
+                    let screen = try #require(c.device?.screenRect)
+                    let label = "crop \(position) \(region) \(layout)"
+                    #expect(screen.insetBy(dx: -0.5, dy: -0.5).contains(callout.highlight), "\(label): ring inside the screen")
+                    // The card shows exactly what the ring marks, and that is content that is visible.
+                    let unit = CGRect(x: (callout.highlight.minX - callout.screen.minX) / callout.screen.width,
+                                      y: (callout.highlight.minY - callout.screen.minY) / callout.screen.height,
+                                      width: callout.highlight.width / callout.screen.width,
+                                      height: callout.highlight.height / callout.screen.height)
+                    #expect(abs(unit.minX - callout.source.minX) < 0.0001 && abs(unit.width - callout.source.width) < 0.0001, "\(label)")
+                    #expect(abs(unit.minY - callout.source.minY) < 0.0001 && abs(unit.height - callout.source.height) < 0.0001, "\(label)")
+                    let visible = layer.visibleUnit.insetBy(dx: -0.0001, dy: -0.0001)
+                    #expect(visible.contains(callout.source), "\(label): source \(callout.source) visible \(layer.visibleUnit)")
+                    #expect(c.callout?.rect.width ?? 0 > 0)
+                }
+            }
+        }
+    }
 }

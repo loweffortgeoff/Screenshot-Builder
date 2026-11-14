@@ -203,6 +203,7 @@ struct StyleInspector: View {
         case .device: "\(DeviceFinish.named(style.finish, for: spec.family).name). Drawn from Apple's measured bezel."
         case .rounded: "Screenshot with rounded corners, no device."
         case .none: "Screenshot as captured, no frame."
+        case .windowOnly: "Mac window with its own corners and shadow, no laptop."
         }
     }
 
