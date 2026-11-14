@@ -39,6 +39,18 @@ Goal state: a set that matches the Orb look (Task-ed). Start state: 5 captures i
 
 Six actions reach the closest match. Two parts of Orb cannot be made on `main`: the eyebrow label ("TASK(ED)") and the large accent circle behind the phone. The chapter 4 target is 3 actions or fewer for the full look (open the gallery, click Orb, type the app name).
 
+### Recount on `feature/chapter-4` (M4)
+
+The Style tab opens first, with the Looks gallery at its top.
+
+| # | Action | Matches |
+|---|---|---|
+| 1 | Style tab, click the **Orb** tile | Violet theme, System Heavy, left caption, Lead or bleed, the accent circle, App name eyebrow |
+| 2 | Caption tab | |
+| 3 | Type the app name in **App name** | The eyebrow label |
+
+Three actions reach the full look, against six on `main` for a partial match. The target is met.
+
 ## Results
 
 Both judges ran on 2026-11-14 through T3 `delegate_task` (Codex provider, reasoning high), with the same brief: read the rubric, open all 20 PNGs, write one observation per file, then the rubric output with a file named on each issue. A first run was stopped before it finished, because `export-zoom.png` and `export-zoom-ch3.png` had no Zoom card (the harness needs `SB_ARRANGE=Callout`). Both judges saw the fixed files.
