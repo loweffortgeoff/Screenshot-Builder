@@ -1,7 +1,7 @@
 # TODO
 
 ## Next
-- Chapter 3 decision: the council median stayed at 7.4 after three rounds (pass bar 8.0). Geoff decides: accept 7.4, or approve spec changes for another round. Results: `docs/superpowers/council/chapter-3-results.md`. Branch `feature/chapter-3` (pushed, not merged).
+- Chapter 4 approval (Geoff): read the draft spec `docs/superpowers/specs/2026-11-14-chapter-4-product-pass.md` and plan `docs/superpowers/plans/2026-11-14-chapter-4-product-pass.md`, and answer Q1 to Q7 (Q1 is the Zoom card and H1).
 - Chapter 3 hands-on acceptance (Geoff, about 20 minutes): the end checklist in `docs/superpowers/plans/2026-11-14-chapter-3-canvas-and-compositions.md`. Pinch zoom is not verified (it cannot be scripted).
 - iPad acceptance: not tested by Geoff (2026-11-14, no iPad Pro on hand). iPad output can be checked with iPad Pro simulator captures; Geoff's acceptance stays open.
 
@@ -13,6 +13,7 @@
 - Outside v1: freeform editing, layers, stickers, AI copy, localization management, and direct upload. These do not serve the initial fixed-layout workflow.
 
 ## Done
+- 2026-11-14 — Chapter 3 decision: Geoff dropped the 8.0 target (Sol review) and merged chapter 3 to `main` at `79a6186`.
 - 2026-11-14 — Chapter 3 implemented (milestones Z, C, E, P, K, N): Zoom quality, fit-to-pane canvas with zoom and Set view, on-canvas editing and drag, real weights, tab craft, iPad fill, Mac fit and Window only, MacBook redraw, five caption compositions, format v4. Code review by code-reviewer and Fable; fixes committed. Council medians 7.3, 7.4, 7.4 (branch feature/chapter-3).
 - 2026-11-14 — Geoff's hands-on check of chapters 1–2 on MacBook Pro (iPhone 6.9 and Mac outputs). Findings folded into the chapter 3 spec; iPad not tested.
 - 2026-11-13 — Chapter 2, per-shot layouts: Tilt, Hero, Duo, and Zoom arrangements, Vary layouts, badges, theme contrast test, capture-fit warning, clean bleed edge, and empty-state fix. Council median 7.5 (Opus 7.1, Sonnet 7.6, Fable 7.5), accepted by Geoff (branch feature/pro-framing).

@@ -8,7 +8,7 @@ Requires macOS 14 or later and Xcode command line tools. Run `./scripts/build-ap
 
 ## Status
 
-Chapters 1 and 2 are on branch `feature/pro-framing` (not merged). Chapter 3 (canvas, Zoom, iPad, Mac, compositions) is on `feature/chapter-3`, branched from it (not merged). An ad-hoc UI council (Opus, Sonnet, Fable) scored the app 3.8 at v1 and 7.5 after chapters 1 and 2 (accepted by Geoff on 2026-11-13). Chapter 3 scored medians of 7.3, 7.4, and 7.4 over three rounds; results are in `docs/superpowers/council/chapter-3-results.md`. Plans are in `docs/superpowers/plans/` and specs in `docs/superpowers/specs/`.
+Chapters 1 to 3 are merged to `main` (2026-11-14, `79a6186`). Chapter 4 (starter looks and a product pass) is a draft spec waiting for Geoff's approval. An ad-hoc UI council (Opus, Sonnet, Fable) scored the app 3.8 at v1 and 7.5 after chapters 1 and 2 (accepted by Geoff on 2026-11-13). Chapter 3 scored medians of 7.3, 7.4, and 7.4 over three rounds; results are in `docs/superpowers/council/chapter-3-results.md`. Plans are in `docs/superpowers/plans/` and specs in `docs/superpowers/specs/`.
 
 ## Review harness
 
