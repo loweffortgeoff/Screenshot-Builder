@@ -14,7 +14,7 @@ This plan adapts the pstack multi-phase skeleton to Geoff's rules in `~/.claude/
 - Live checks run locally on the MacBook Pro or the Mac mini, not on cloud VMs. They use the review harness (`SampleRenderTests`) and `scripts/capture-window.sh`. Each milestone has fewer than ten lanes, because each milestone touches one area.
 - Implementation commits and fix commits stay separate.
 - Each milestone ends with a short update to Geoff that ends in "Nothing for you" or "Action needed".
-- The pstack plan checker (`check-plan.mjs`) still flags the PR, owner, merge, cloud boot, and `/loop` sections as missing, and the "A PR is verified" wording. Those parts do not apply here, so the plan leaves them out on purpose.
+- The pstack plan checker (`check-plan.mjs`) still flags these template rules, which the plan does not follow on purpose. It wants PR, owner, merge, cloud boot, and `/loop` sections. It wants ten lanes per section, a screenshot in every lane (regression lanes compare pixels instead), four perf boxes even where no render path changes, a Merge block, and a screenshot-and-video review gate. It wants "A PR is verified" where this plan says "A milestone is verified". The one long dash it flags is the literal eyebrow label "01 — ".
 - The execution playbook is `playbooks/autopilot-stack.md` in spirit (build and verify, Geoff lands). Claude owns commits. Delegates write code only when the plan names them.
 
 Tests alone are not sufficient verification. A milestone is verified only when its unit, live, and perf boxes are all checked.
@@ -23,7 +23,7 @@ Tests alone are not sufficient verification. A milestone is verified only when i
 
 ### Arm the program
 
-- [ ] Give Geoff the spec and this plan, then stop. Start only on Geoff's explicit go and his answers to Q1 to Q7 (defaults apply to any he skips).
+- [ ] Give Geoff the spec and this plan, then stop. Start only on Geoff's explicit go. Defaults apply to any of Q3 to Q7 he skips. Q1 and Q2 have no default, so M6 waits for his explicit answer.
 - [ ] Record Geoff's answers in the spec's "Open questions" section and in `DECISIONS.md` (doc-only commit on `main`).
 - [ ] Create the worktree from `main` with `git -C ~/Developer/Screenshot-Builder worktree add ~/Developer/Screenshot-Builder-ch4 -b feature/chapter-4 main`. The evidence is `git worktree list`.
 - [ ] Name the machine in the first update (`hostname`, `xcodebuild -version`).
@@ -56,7 +56,7 @@ Tests alone are not sufficient verification. A milestone is verified only when i
 **Build.**
 
 - [ ] Write the pick criteria in `judge-calibration.md` before any run. A judge passes when (a) it states one specific observation per input file that matches that PNG, (b) every issue it lists names a file, and (c) no claim contradicts the image. Scores are recorded and not used.
-- [ ] Rebuild the chapter 3 round 3 inputs. They are not on this Mac (only chapter 2's `c2r3` folder exists). Run `git -C ~/Developer/Screenshot-Builder archive d02e7d7 | tar -x -C <scratchpad>/d02e7d7`, then render the 20 slots in `inputs.md` from there. Window captures come from the app built at `d02e7d7`.
+- [ ] Rebuild the chapter 3 round 3 inputs. They are not on this Mac (only chapter 2's `c2r3` folder exists). Run `git -C ~/Developer/Screenshot-Builder archive d02e7d7 | tar -x -C <scratchpad>/d02e7d7`, then render the 20 slots in `inputs.md` from there. Window captures come from the app built at `d02e7d7`. The chapter 3 notes do not record the `jq` edits behind `set-compositions.png`, so the rebuilt set may differ from the scored one. Record that in `judge-calibration.md`. If Geoff still has the original round 3 PNGs, use those instead.
 - [ ] Run `gpt-6.1-sol` (reasoning high) and `gpt-6-astra` (reasoning high) through `delegate_task` on the Codex provider, each with `council-rubric.md` and the 20 PNG paths. Ask each to list every file it opened.
 - [ ] Count the style actions from "5 captures imported, captions typed" to a set that matches the Orb reference (Task-ed) on `main` at `79a6186`. Record each action.
 
@@ -110,7 +110,7 @@ Tests alone are not sufficient verification. A milestone is verified only when i
 
 - [ ] Lane 1. Regression lane against trunk. `scripts/compare-renders.sh 79a6186 HEAD`. Pass when all six slots match exactly (none uses portrait Side by side).
 - [ ] Lane 2. Render the dark set with `SB_COMPOSITION=sideBySide`. Save `m1-lead-dark.png`. Pass when all 5 shots are Lead and headlines share a baseline.
-- [ ] Lane 3. Same on the light set. Save `m1-lead-light.png`. Same predicate.
+- [ ] Lane 3. Same on the light set. Save `m1-lead-light.png`. Pass when all 5 shots are Lead and headlines share a baseline.
 - [ ] Lane 4. Render iPad and landscape with Side by side. Save `m1-side-ipad.png`. Pass when the geometry equals `main`.
 
 **Verify, perf.** Tests alone are not sufficient verification. A milestone is verified only when its unit, live, and perf boxes are all checked.
@@ -204,7 +204,7 @@ Tests alone are not sufficient verification. A milestone is verified only when i
 **Files.**
 
 - [ ] Create `Sources/ScreenshotBuilder/Model/Look.swift` (registry of six looks, `apply`, `matches`).
-- [ ] Edit `Sources/ScreenshotBuilder/Model/Background.swift` (themes Ember, Field, Mist, if Q6 is accepted).
+- [ ] Edit `Sources/ScreenshotBuilder/Model/Background.swift` (themes Violet, Coral, Ember, Field, Amber, Mist, if Q6 is accepted).
 - [ ] Create `Sources/ScreenshotBuilder/Editor/LookPicker.swift` (tiles with live thumbnails).
 - [ ] Edit `Sources/ScreenshotBuilder/Editor/StyleInspector.swift` (Looks row at the top).
 - [ ] Edit `Sources/ScreenshotBuilder/Model/SetStyle.swift` (`monoEyebrow`, if Q5 is accepted).
@@ -227,10 +227,10 @@ Tests alone are not sufficient verification. A milestone is verified only when i
 
 - [ ] Lane 1. Regression lane against trunk. `scripts/compare-renders.sh 79a6186 HEAD`. Pass when all six slots match exactly (a look applies only on click).
 - [ ] Lane 2. Each look on the dark set. Save `m4-<look>-dark.png`. Pass when it resembles its model set (Appendix D) and has no issue.
-- [ ] Lane 3. Each look on the light set. Save `m4-<look>-light.png`. Same predicate.
+- [ ] Lane 3. Each look on the light set. Save `m4-<look>-light.png`. Pass when it resembles its model set and has no issue.
 - [ ] Lane 4. Orb on iPad and Mac. Save `m4-orb-ipad.png`, `m4-orb-mac.png`. Pass when R1.4 holds.
 - [ ] Lane 5. Window capture of the Style tab with the gallery. Save `m4-window.png`. Pass when six labelled tiles show live thumbnails of the selected shot.
-- [ ] Lane 6. Recount the style actions to reach Orb. Pass when the count is 2 or fewer.
+- [ ] Lane 6. Recount the actions to reach Orb, typing the app name included. Save the list in `judge-calibration.md` beside the M0 count. Pass when the count is 3 or fewer.
 
 **Verify, perf.** Tests alone are not sufficient verification. A milestone is verified only when its unit, live, and perf boxes are all checked.
 
@@ -358,7 +358,7 @@ Tests alone are not sufficient verification. A milestone is verified only when i
 
 - [ ] Freeze the SHA. Build these slots. Each names its source folder.
   - [ ] Windows. `window-looks.png` (gallery), `window-advanced.png` (Advanced background open), `window-caption.png` (eyebrow controls), `window-set.png`, and two interaction captures, `window-edit-before.png` and `window-edit-after.png` (on-canvas eyebrow edit).
-  - [ ] Sets. One contact sheet per look, half on dark inputs and half on light (`set-orb.png` to `set-calm.png`), `set-lead.png`, `set-ipad.png`.
+  - [ ] Sets. One contact sheet per look, half on dark inputs and half on light (`set-orb.png` to `set-calm.png`), `set-lead.png`, `set-ipad.png`, and `set-compositions.png` (Lead, Big number, Stacked with Zoom, Overlay, Text only), which keeps the hard cases.
   - [ ] Singles. `export-zoom-dark.png`, `export-zoom-light.png`, `export-mac-window.png`, `export-mac-display.png`.
 - [ ] Run Opus, Sonnet, and the M0 judge, in one message, with `council-rubric.md` unchanged.
 - [ ] Fix findings that two or more judges repeat and that are in scope. Separate fix commits. No second round.

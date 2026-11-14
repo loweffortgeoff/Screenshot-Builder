@@ -13,7 +13,7 @@
 - Outside v1: freeform editing, layers, stickers, AI copy, localization management, and direct upload. These do not serve the initial fixed-layout workflow.
 
 ## Done
-- 2026-11-14 — Chapter 3 decision: Geoff dropped the 8.0 target (Sol review) and merged chapter 3 to `main` at `79a6186`.
+- 2026-11-14 — Chapter 3 merged to `main` at `79a6186`. Chapter 4 replaces the score target with a product success sentence (Sol review).
 - 2026-11-14 — Chapter 3 implemented (milestones Z, C, E, P, K, N): Zoom quality, fit-to-pane canvas with zoom and Set view, on-canvas editing and drag, real weights, tab craft, iPad fill, Mac fit and Window only, MacBook redraw, five caption compositions, format v4. Code review by code-reviewer and Fable; fixes committed. Council medians 7.3, 7.4, 7.4 (branch feature/chapter-3).
 - 2026-11-14 — Geoff's hands-on check of chapters 1–2 on MacBook Pro (iPhone 6.9 and Mac outputs). Findings folded into the chapter 3 spec; iPad not tested.
 - 2026-11-13 — Chapter 2, per-shot layouts: Tilt, Hero, Duo, and Zoom arrangements, Vary layouts, badges, theme contrast test, capture-fit warning, clean bleed edge, and empty-state fix. Council median 7.5 (Opus 7.1, Sonnet 7.6, Fable 7.5), accepted by Geoff (branch feature/pro-framing).

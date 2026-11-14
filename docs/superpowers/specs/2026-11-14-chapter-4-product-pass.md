@@ -19,7 +19,7 @@ There is no score target. Each clause has one observable check. Geoff decides wh
 | Clause | Check |
 |---|---|
 | Coherent set | Each of the 6 looks, applied to the dark sample set and to the light sample set, renders 5 shots with no overflow, contrast, or low-resolution issue (unit test over every look and both input sets). Geoff looks at the 12 contact sheets and calls each set coherent or not. |
-| Less manual adjustment | Count the inspector actions from "5 captures imported, captions typed" to a set that matches one reference look (Orb, modelled on Task-ed). Measure on `main` first (milestone M0), then on the branch. Pass when the branch needs at most 2 style actions (open the gallery, click the look). |
+| Less manual adjustment | Count the inspector actions from "5 captures imported, captions typed" to a set that matches one reference look (Orb, modelled on Task-ed). Measure on `main` first (milestone M0), then on the branch. Typing the app name counts as one action on the branch. `main` has no eyebrow or backdrop, so its count covers only what `main` can match (theme, font, weight, alignment, layout) and lists what it cannot. Pass when the branch needs at most 3 actions (open the gallery, click the look, type the app name). |
 | Clearer controls | No pop-up menu remains for Composition. The inspector keeps one width across all tabs and after Set view (window captures). With the advanced background section closed, the Style tab fits a 1440 × 920 window without scrolling. Set-level and shot-level controls sit under separate headers. |
 | Stronger Zoom | Depends on decision Q1. At least, the card follows the theme, and the R1.6 marker check still passes. No Zoom finding repeats across two or more judges in the review. |
 | Stronger portrait | On portrait iPhone, no shot uses the old Side by side geometry. The new Lead composition device is at least 0.80 × canvas width. No "does not read as side by side" finding in the review. |
@@ -64,6 +64,8 @@ struct Decor: Codable, Equatable {            // SetStyle.decor
 // Shot.eyebrow: String = ""                  // section label for .section and .numbered
 ```
 
+An eyebrow with empty text draws nothing. The set reserves the eyebrow row only when at least one shot draws an eyebrow. The App name field shows the placeholder "App name", so the user sees what is missing.
+
 A starter look is a value in a registry, not stored state.
 
 ```swift
@@ -84,20 +86,22 @@ A look writes into `SetStyle` and clears per-shot composition overrides. The pro
 | R1.1 | The Style tab opens with a **Looks** row: 6 tiles (Orb, Bokeh, Editorial, Scoreboard, Rays, Calm). Each tile is a live thumbnail of the selected shot with that look, rendered by the shared renderer. | Window capture of the Style tab. |
 | R1.2 | Clicking a tile applies the look to the whole set in one step. One Undo reverts it. | Unit test: apply, then undo, gives the old document. Live check through the app. |
 | R1.3 | A look **overwrites** theme colors and background, font, weight, text size, alignment, caption layout, set composition, backdrop, and decor (except `appName`). It **clears** each shot's own composition. It **keeps** captions, eyebrow text, badges, stats, arrangements, Zoom settings, the device, frame, finish, preset, orientation, and `appName`. | Unit test per look over a document with every kept field set. |
-| R1.4 | Looks behave the same on every preset. On portrait iPhone, a look that asks for Lead gets Lead (R4). On iPad and landscape, the same look uses Stacked with left alignment and bleed bottom. On Mac, the look keeps the caption above the laptop and does not bleed. | Render each look on phone69, pad13, and mac. No issue in `ShotRenderer.issues`. |
+| R1.4 | Every look writes composition Stacked, layout Bleed bottom, and alignment Left. That is the Lead shape (R4) on portrait iPhone, and it is a valid left-aligned bleed on iPad and landscape. Looks never write Side by side, so iPad and landscape never get true Side by side from a look. On Mac, Bleed bottom keeps the chapter 3 Mac rules for the laptop. | Render each look on phone69, pad13, and mac. No issue in `ShotRenderer.issues`. |
 | R1.5 | Every look passes the 3:1 large-text contrast test on every background stop, including hue-shifted stops (R2.4). | Unit test over all looks. |
 | R1.6 | If the user changes any value after applying a look, the tile loses its "current" mark. Nothing else happens. | Unit test on `Look.matches(style)`. |
 
-The recipes below come from Geoff's sets. New themes are named in Q6.
+The recipes below come from Geoff's sets. Every look uses Stacked, Bleed bottom, and Left (R1.4). Each look's colors are a theme in `Theme.all`, so the theme swatch row shows a selection after a look is applied. Five themes are new (Q6).
 
-| Look | Model | Theme | Type | Composition and layout | Backdrop | Decor |
-|---|---|---|---|---|---|---|
-| Orb | Task-ed | Noir with a violet accent | System, Heavy, left | Lead (portrait phone), else bleed bottom | Orb | Eyebrow app name |
-| Bokeh | EveryPaw | Graphite with a coral accent | Rounded, Bold, left | Lead | Bokeh | Shapes, rule |
-| Editorial | Weather in Words | Ember (new, warm dark gradient) | Serif, Bold, left | Lead | Arcs, hue shift on | Eyebrow section, rule |
-| Scoreboard | Offshoots | Field (new, flat olive) | System, Heavy, left | Lead | None | Eyebrow numbered (mono if Q5) |
-| Rays | AisleWise | Noir with an orange accent | System, Heavy, left | Lead | Rays | Eyebrow section, rule before it |
-| Calm | Tucked | Mist (new, flat pale blue) | System, Bold, left | Lead | None | Eyebrow app name in accent |
+| Look | Model | Theme | Type | Backdrop | Decor |
+|---|---|---|---|---|---|
+| Orb | Task-ed | Violet (new, near-black with a violet accent) | System, Heavy | Orb | Eyebrow app name |
+| Bokeh | EveryPaw | Coral (new, warm graphite with a coral accent) | Rounded, Bold | Bokeh | Shapes, rule |
+| Editorial | Weather in Words | Ember (new, warm dark gradient) | Serif, Bold | Arcs, hue shift on | Eyebrow section, rule |
+| Scoreboard | Offshoots | Field (new, flat olive with a lime accent) | System, Heavy | None | Eyebrow numbered (mono if Q5) |
+| Rays | AisleWise | Noir with an orange accent, as a new theme Amber | System, Heavy | Rays | Eyebrow section, rule before it |
+| Calm | Tucked | Mist (new, flat pale blue) | System, Bold | None | Eyebrow app name in accent |
+
+Rays makes the sixth new theme, so the count is six (Violet, Coral, Ember, Field, Amber, Mist).
 
 ### R2. Advanced background menu
 
@@ -161,7 +165,7 @@ Fix only defects that Geoff's 2026-11-14 framing-test exports or the review show
 
 ## Open questions for Geoff
 
-Each question has a recommended default. If Geoff approves the spec without answering one, the default applies.
+Each question has a recommended default. If Geoff approves the spec without answering Q3 to Q7, the default applies. Q1 and Q2 have no silent default, because they touch H1. M6 waits for Geoff's explicit answer, and no other milestone depends on it.
 
 **Q1. Zoom card treatment (touches H1).** Which option?
 - A. No change. The card stays white with its current border.
@@ -177,6 +181,6 @@ Each question has a recommended default. If Geoff approves the spec without answ
 
 **Q5. Scoreboard eyebrow font.** Recommended: allow the system monospace face (SF Mono, ships with macOS) for the eyebrow only. This is the one font addition. Alternative: Scoreboard uses the caption font for its eyebrow.
 
-**Q6. New themes.** Recommended: add three themes so the looks match Geoff's sets: Ember (warm dark gradient, Weather in Words), Field (flat dark olive, Offshoots), Mist (flat pale blue, Tucked). They also appear in the theme swatches. Alternative: map those looks to the nearest existing theme (Graphite, Noir, Sky).
+**Q6. New themes.** Recommended: add six themes, one per look, so the looks match Geoff's sets and the swatch row stays selected (Violet, Coral, Ember, Field, Amber, Mist). They also appear in the theme swatches, which grow from 14 to 20. Alternative: map the looks to the nearest existing themes (Noir, Graphite, Sky), and accept that a look's accent then differs from Geoff's sets.
 
 **Q7. Council panel.** Recommended: Opus, Sonnet, and the calibrated GPT judge. Fable advises and reviews code. Alternative: GPT judge plus Opus only.
