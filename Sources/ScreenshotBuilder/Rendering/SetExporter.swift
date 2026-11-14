@@ -5,13 +5,13 @@ enum SetExporter {
     /// Creates a new folder, so previous exports are never overwritten.
     static func export(shots: [Shot], style: SetStyle, parent: URL) throws -> URL {
         guard !shots.isEmpty else { throw BuilderError.message("Add at least one screenshot first.") }
+        let band = ShotRenderer.captionBand(shots: shots, style: style)
         for (index, shot) in shots.enumerated() {
-            let errors = ShotRenderer.warnings(shot: shot, style: style).filter { !$0.contains("may look soft") }
+            let errors = ShotRenderer.warnings(shot: shot, style: style, captionBand: band).filter { !$0.contains("may look soft") }
             if !errors.isEmpty { throw BuilderError.message("Shot \(index + 1): \(errors.joined(separator: " "))") }
         }
         let folder = parent.appendingPathComponent("Screenshots-\(Int(style.size.width))x\(Int(style.size.height))-\(UUID().uuidString.prefix(8))", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false)
-        let band = ShotRenderer.captionBand(shots: shots, style: style)
         do {
             for (index, shot) in shots.enumerated() {
                 let bitmap = try ShotRenderer.render(shot: shot, style: style,

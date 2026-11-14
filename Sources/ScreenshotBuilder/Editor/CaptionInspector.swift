@@ -4,6 +4,7 @@ struct CaptionInspector: View {
     @Binding var shot: Shot
     let position: Int
     let style: SetStyle
+    var captionBand: ShotRenderer.CaptionBand?
     let replaceImage: () -> Void
 
     var body: some View {
@@ -36,7 +37,7 @@ struct CaptionInspector: View {
                 Label("Captions are saved but hidden in this layout.", systemImage: "eye.slash")
                     .font(.caption).foregroundStyle(.secondary)
             }
-            ForEach(ShotRenderer.warnings(shot: shot, style: style), id: \.self) { warning in
+            ForEach(ShotRenderer.warnings(shot: shot, style: style, captionBand: captionBand), id: \.self) { warning in
                 Label(warning, systemImage: "exclamationmark.triangle.fill")
                     .font(.callout).foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
@@ -73,44 +74,5 @@ struct CaptionInspector: View {
                 .labelsHidden()
         }
         .padding(.vertical, 2)
-    }
-}
-
-/// Word-level accent markup: a word wrapped in *asterisks* takes the accent color.
-enum Highlight {
-    struct Word { var text: String; var highlighted: Bool }
-
-    private static func split(_ token: Substring) -> (lead: String, core: String, trail: String) {
-        let chars = Array(token)
-        var start = 0, end = chars.count
-        while start < end, !chars[start].isLetter && !chars[start].isNumber && chars[start] != "*" { start += 1 }
-        while end > start, !chars[end - 1].isLetter && !chars[end - 1].isNumber && chars[end - 1] != "*" { end -= 1 }
-        return (String(chars[..<start]), String(chars[start..<end]), String(chars[end...]))
-    }
-
-    static func words(in headline: String) -> [Word] {
-        headline.split(separator: " ").compactMap { token in
-            let core = split(token).core
-            let bare = core.replacingOccurrences(of: "*", with: "")
-            guard !bare.isEmpty else { return nil }
-            return Word(text: bare, highlighted: core.hasPrefix("*") && core.hasSuffix("*") && core.count > 1)
-        }
-    }
-
-    /// Wraps or unwraps the word at `index` (counting words as `words(in:)` does).
-    static func toggle(_ index: Int, in headline: String) -> String {
-        var tokens = headline.split(separator: " ", omittingEmptySubsequences: false).map(String.init)
-        var wordIndex = -1
-        for (i, token) in tokens.enumerated() {
-            let parts = split(Substring(token))
-            guard !parts.core.replacingOccurrences(of: "*", with: "").isEmpty else { continue }
-            wordIndex += 1
-            guard wordIndex == index else { continue }
-            let bare = parts.core.replacingOccurrences(of: "*", with: "")
-            let on = parts.core.hasPrefix("*") && parts.core.hasSuffix("*") && parts.core.count > 1
-            tokens[i] = parts.lead + (on ? bare : "*\(bare)*") + parts.trail
-            break
-        }
-        return tokens.joined(separator: " ")
     }
 }

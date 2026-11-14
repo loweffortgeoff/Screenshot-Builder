@@ -96,9 +96,14 @@ enum ShotRenderer {
             headWidth = min(metrics.textWidth, high + 2)
         }
         let subWidth = balancedWidth(subtitle, maxWidth: metrics.textWidth)
-        let head = shot.headline.isEmpty ? 0 : measuredHeight(headline, width: headWidth)
         let sub = shot.subtitle.isEmpty ? 0 : measuredHeight(subtitle, width: subWidth)
+        var head = shot.headline.isEmpty ? 0 : measuredHeight(headline, width: headWidth)
         let gap = head > 0 && sub > 0 ? metrics.gap : 0
+        if head + gap + sub > metrics.maxBand + 0.5 {
+            // The extra matching line would overflow the band; keep the natural wrap instead.
+            headWidth = balancedWidth(headline, maxWidth: metrics.textWidth)
+            head = shot.headline.isEmpty ? 0 : measuredHeight(headline, width: headWidth)
+        }
         return (head, sub, headWidth, subWidth, head + gap + sub)
     }
 
@@ -193,9 +198,11 @@ enum ShotRenderer {
                            device: device, cornerRadius: cornerRadius, windowed: windowed)
     }
 
-    static func warnings(shot: Shot, style: SetStyle) -> [String] {
+    /// Pass the set's band so validation checks exactly what render draws.
+    static func warnings(shot: Shot, style: SetStyle, captionBand: CaptionBand? = nil) -> [String] {
         guard let image = shot.cgImage else { return ["Source image cannot be read."] }
-        return compose(shot: shot, style: style, sourceSize: CGSize(width: image.width, height: image.height)).warnings
+        return compose(shot: shot, style: style, sourceSize: CGSize(width: image.width, height: image.height),
+                       captionBand: captionBand).warnings
     }
 
     static func render(shot: Shot, style: SetStyle, maxDimension: CGFloat? = nil,
@@ -229,11 +236,26 @@ enum ShotRenderer {
         let silhouette = composition.device?.silhouette
             ?? CGPath(roundedRect: composition.imageRect, cornerWidth: composition.cornerRadius,
                       cornerHeight: composition.cornerRadius, transform: nil)
-        if style.shadow {
+        let unit = min(size.width, size.height)
+        let pixelScale = CGFloat(width) / size.width
+        // Captures with transparency (for example a macOS window shot with its own shadow margins) must not sit
+        // on an opaque fill; they cast their shadow from their own alpha instead.
+        let hasAlpha = ![CGImageAlphaInfo.none, .noneSkipFirst, .noneSkipLast].contains(source.alphaInfo)
+        let shadows: [(CGFloat, CGFloat, CGFloat)] = [(0.03, 0.09, 0.42), (0.008, 0.018, 0.32)]
+        func drawCaptureWithShadow(clip path: CGPath, offset: CGFloat, blur: CGFloat, alpha: CGFloat) {
+            cg.saveGState()
+            cg.setShadow(offset: CGSize(width: 0, height: -offset * pixelScale), blur: blur * pixelScale,
+                         color: CGColor(gray: 0, alpha: alpha))
+            cg.beginTransparencyLayer(auxiliaryInfo: nil)
+            cg.addPath(path); cg.clip()
+            drawCapture()
+            cg.endTransparencyLayer()
+            cg.restoreGState()
+        }
+        let captureCastsShadow = style.shadow && hasAlpha && composition.device == nil
+        if style.shadow && !captureCastsShadow {
             // Two shadows: a wide ambient one and a tight contact one. Offsets are in device pixels.
-            let unit = min(size.width, size.height)
-            let pixelScale = CGFloat(width) / size.width
-            for (offset, blur, alpha) in [(0.03, 0.09, 0.42), (0.008, 0.018, 0.32)] as [(CGFloat, CGFloat, CGFloat)] {
+            for (offset, blur, alpha) in shadows {
                 cg.saveGState()
                 cg.setShadow(offset: CGSize(width: 0, height: -unit * offset * pixelScale), blur: unit * blur * pixelScale,
                              color: CGColor(gray: 0, alpha: alpha))
@@ -255,18 +277,12 @@ enum ShotRenderer {
                 cg.fill(device.screenRect)
                 let window = CGPath(roundedRect: composition.imageRect, cornerWidth: composition.cornerRadius,
                                     cornerHeight: composition.cornerRadius, transform: nil)
-                let pixelScale = CGFloat(width) / size.width
-                cg.saveGState()
-                cg.setShadow(offset: CGSize(width: 0, height: -content.height * 0.012 * pixelScale),
-                             blur: content.height * 0.05 * pixelScale, color: CGColor(gray: 0, alpha: 0.5))
-                cg.addPath(window); cg.setFillColor(CGColor(gray: 0.1, alpha: 1)); cg.fillPath()
-                cg.restoreGState()
-                cg.saveGState()
-                cg.addPath(window); cg.clip()
-                drawCapture()
-                cg.restoreGState()
+                // The window casts its shadow from its own pixels, so transparent margins stay transparent.
+                drawCaptureWithShadow(clip: window, offset: content.height * 0.012, blur: content.height * 0.05, alpha: 0.5)
             } : drawCapture
             device.draw(in: cg, finish: DeviceFinish.named(style.finish, for: device.spec.family), drawScreen: screen)
+        } else if captureCastsShadow {
+            drawCaptureWithShadow(clip: silhouette, offset: unit * shadows[0].0, blur: unit * shadows[0].1, alpha: shadows[0].2)
         } else {
             cg.saveGState()
             cg.addPath(silhouette)
@@ -411,15 +427,10 @@ enum ShotRenderer {
             if index % 2 == 1 { attrs[.foregroundColor] = style.accent.nsColor }
             output.append(NSAttributedString(string: part, attributes: attrs))
         }
-        // Stored accent words, matched as whole words without case.
-        let wanted = Set(accents.map { $0.lowercased() })
-        if !wanted.isEmpty {
-            let string = output.string as NSString
-            string.enumerateSubstrings(in: NSRange(location: 0, length: string.length), options: .byWords) { word, range, _, _ in
-                if let word, wanted.contains(word.lowercased()) {
-                    output.addAttribute(.foregroundColor, value: style.accent.nsColor, range: range)
-                }
-            }
+        // Stored accent words, tokenized exactly as the Highlight menu tokenizes them.
+        let plain = output.string
+        for range in Highlight.accentRanges(in: plain, accents: accents) {
+            output.addAttribute(.foregroundColor, value: style.accent.nsColor, range: NSRange(range, in: plain))
         }
         // Tight tracking suits display sizes.
         output.addAttribute(.kern, value: -size * 0.012, range: NSRange(location: 0, length: output.length))

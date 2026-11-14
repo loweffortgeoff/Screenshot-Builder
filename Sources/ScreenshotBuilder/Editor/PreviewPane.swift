@@ -58,6 +58,11 @@ struct PreviewPane: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .underPageBackgroundColor))
         .task(id: PreviewKey(shot: shot, style: style, position: position, captionBand: captionBand)) {
+            // Coalesce keystrokes; a newer edit cancels this task before it renders.
+            if preview != nil {
+                try? await Task.sleep(for: .milliseconds(90))
+                if Task.isCancelled { return }
+            }
             do {
                 let bitmap = try shot.map {
                     try ShotRenderer.render(shot: $0, style: style, maxDimension: 1500, position: position, captionBand: captionBand)

@@ -358,4 +358,64 @@ struct BuilderTests {
         #expect(content.insetBy(dx: 1, dy: 1).contains(window.imageRect))
         #expect(window.imageRect.width < content.width * 0.9)
     }
+
+    @Test func transparentCaptureMarginsShowTheBackground() throws {
+        // A 400x300 capture with a clear 40 px margin around an opaque red window.
+        let context = try #require(CGContext(data: nil, width: 400, height: 300, bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
+        context.fill(CGRect(x: 40, y: 40, width: 320, height: 220))
+        let image = try #require(context.makeImage())
+        let png = try #require(NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]))
+        let shot = Shot(name: "Window", imageData: png)
+        for preset in [OutputPreset.phone69, .mac] {
+            var style = SetStyle()
+            style.preset = preset
+            style.layout = .imageOnly
+            style.frameStyle = .none
+            style.grain = false
+            style.background = .solid(RGBColor(0, 0, 1))
+            let bitmap = try ShotRenderer.render(shot: shot, style: style)
+            let rect = ShotRenderer.compose(shot: shot, style: style, sourceSize: CGSize(width: 400, height: 300)).imageRect
+            // Sample inside the clear margin, away from the shadow side.
+            let margin = try #require(bitmap.colorAt(x: Int(rect.minX + rect.width * 0.5), y: Int(rect.minY + rect.height * 0.04))?.usingColorSpace(.sRGB))
+            #expect(margin.blueComponent > 0.6, "margin should show the blue background on \(preset)")
+            let middle = try #require(bitmap.colorAt(x: Int(rect.midX), y: Int(rect.midY))?.usingColorSpace(.sRGB))
+            #expect(middle.redComponent > 0.9)
+        }
+    }
+
+    @Test func accentMenuAndRendererAgreeOnHyphenatedWords() {
+        let headline = "Fast Wi-Fi, 24/7 and all-in-one"
+        let words = Highlight.words(in: headline).map(\.text)
+        #expect(words == ["Fast", "Wi-Fi", "24/7", "and", "all-in-one"])
+        var style = SetStyle()
+        style.accent = RGBColor(1, 0, 0)
+        let text = ShotRenderer.headlineText(headline, accents: ["wi-fi", "24/7"], style: style, size: 80)
+        let wifi = (text.string as NSString).range(of: "Wi-Fi")
+        #expect(text.attribute(.foregroundColor, at: wifi.location + 3, effectiveRange: nil) as? NSColor == style.accent.nsColor)
+        let clock = (text.string as NSString).range(of: "24/7")
+        #expect(text.attribute(.foregroundColor, at: clock.location + 3, effectiveRange: nil) as? NSColor == style.accent.nsColor)
+        #expect(Highlight.toggle(1, in: headline) == "Fast *Wi-Fi*, 24/7 and all-in-one")
+    }
+
+    @Test func matchingLineCountNeverOverflowsTheBand() throws {
+        var long = try fixture()
+        long.headline = "See where your money goes every week"
+        long.subtitle = ""
+        var crowded = try fixture()
+        crowded.headline = "Track every trip"
+        crowded.subtitle = "A long subtitle that keeps going and going so that it wraps onto several lines in the band"
+        for size in CaptionSize.allCases {
+            var style = SetStyle()
+            style.textSize = size
+            style.imageScale = 1
+            let band = ShotRenderer.captionBand(shots: [long, crowded], style: style)
+            let c = ShotRenderer.compose(shot: crowded, style: style, sourceSize: CGSize(width: 1320, height: 2868), captionBand: band)
+            let device = try #require(c.device)
+            let warns = ShotRenderer.warnings(shot: crowded, style: style, captionBand: band)
+            // Either it fits above the device, or validation flags it so export blocks.
+            #expect(c.subtitleRect.maxY <= device.rect.minY || warns.contains { $0.contains("too long") })
+        }
+    }
 }

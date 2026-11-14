@@ -25,7 +25,18 @@ struct Shot: Codable, Equatable, Identifiable {
         accents = try c.decodeIfPresent([String].self, forKey: .accents) ?? []
     }
 
+    /// Decoded images, keyed by content, so typing does not re-decode every capture.
+    nonisolated(unsafe) private static let decoded = NSCache<NSData, CGImageBox>()
+
     var cgImage: CGImage? {
+        let key = imageData as NSData
+        if let hit = Shot.decoded.object(forKey: key) { return hit.image }
+        let image = decode()
+        if let image { Shot.decoded.setObject(CGImageBox(image), forKey: key) }
+        return image
+    }
+
+    private func decode() -> CGImage? {
         guard let source = CGImageSourceCreateWithData(imageData as CFData, nil) else { return nil }
         // Normalize EXIF orientation for both portrait and landscape imports.
         return CGImageSourceCreateThumbnailAtIndex(source, 0, [
@@ -68,6 +79,11 @@ extension Shot {
         return Shot(name: "Placeholder", imageData: data, headline: "Your headline here", subtitle: "Drop screenshots to begin",
                     accents: ["headline"])
     }
+}
+
+final class CGImageBox {
+    let image: CGImage
+    init(_ image: CGImage) { self.image = image }
 }
 
 enum BuilderError: LocalizedError {

@@ -66,7 +66,8 @@ struct Filmstrip: View {
                 .padding(.vertical, 10)
             }
             .onChange(of: selection) { _, id in
-                withAnimation { scroller.scrollTo(id, anchor: .center) }
+                // Views are tagged with UUID, not UUID?, so unwrap before scrolling.
+                if let id { withAnimation { scroller.scrollTo(id, anchor: .center) } }
             }
         }
         .frame(height: canvasAspect < 1 ? 136 : 104)
