@@ -226,7 +226,8 @@ struct EditorView: View {
                 StyleInspector(style: $document.style, tab: tab,
                                varyLayouts: document.shots.isEmpty ? nil : { varyLayouts() },
                                makeUniform: document.shots.isEmpty ? nil : { makeUniform() },
-                               arrangement: arrangementInspector)
+                               arrangement: arrangementInspector,
+                               preview: selection.flatMap { thumbnails[$0] })
             }
             .formStyle(.grouped)
         }

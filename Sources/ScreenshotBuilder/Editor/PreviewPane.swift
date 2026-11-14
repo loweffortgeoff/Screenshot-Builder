@@ -177,6 +177,7 @@ struct PreviewPane: View {
                 .onSubmit { commitEdit(shot: shot) }
                 .onExitCommand { self.editing = nil }
                 .onChange(of: editorFocused) { _, focused in if !focused && self.editing != nil { commitEdit(shot: shot) } }
+                .frame(minHeight: rect.height * scale, alignment: .top)
                 .padding(6)
                 .background(style.background.primary.color, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Color.accentColor, lineWidth: 2))

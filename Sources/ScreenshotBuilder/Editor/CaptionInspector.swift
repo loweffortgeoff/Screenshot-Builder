@@ -37,7 +37,10 @@ struct CaptionInspector: View {
                 .fixedSize()
                 .help("Color words with the theme accent.")
             }
-            field("Subtitle", text: changed(\.subtitle), prompt: "Optional supporting line", lines: 1...3) { EmptyView() }
+            Text("Highlight colors chosen words with the accent. You can also type *asterisks* around a word.")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            field("Subtitle", text: changed(\.subtitle), prompt: "Optional supporting line", lines: 2...3) { EmptyView() }
             field("Badge", text: changed(\.badge), prompt: "Optional label, such as NEW", lines: 1...1) { EmptyView() }
             if !style.layout.hasCaption {
                 Label("Captions are saved but hidden in this layout.", systemImage: "eye.slash")
@@ -80,10 +83,15 @@ struct CaptionInspector: View {
                 Spacer()
                 accessory().font(.caption)
             }
+            // A plain field in its own border: the rounded-border style ignores a minimum line count on macOS.
             TextField(title, text: text, prompt: Text(verbatim: prompt), axis: .vertical)
-                .textFieldStyle(.roundedBorder)
+                .textFieldStyle(.plain)
                 .lineLimit(lines)
                 .labelsHidden()
+                .frame(minHeight: CGFloat(lines.lowerBound) * 17, alignment: .topLeading)
+                .padding(.horizontal, 6).padding(.vertical, 4)
+                .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous).strokeBorder(Color.primary.opacity(0.15)))
         }
         .padding(.vertical, 2)
     }

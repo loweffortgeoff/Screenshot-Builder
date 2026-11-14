@@ -13,6 +13,8 @@ struct StyleInspector: View {
     var makeUniform: (() -> Void)?
     /// The selected shot's arrangement section, shown right after the set layout.
     var arrangement: AnyView?
+    /// The selected shot as it exports, for the Placement mini preview.
+    var preview: NSImage?
 
     var body: some View {
         switch tab {
@@ -98,14 +100,13 @@ struct StyleInspector: View {
 
     @ViewBuilder private var textSection: some View {
         Section {
-            Picker("Font", selection: $style.font) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 64), spacing: 8)], spacing: 8) {
                 ForEach(CaptionFont.allCases) { font in
-                    Text(font.rawValue).font(Font(font.font(size: 13, weight: NSFont.Weight.semibold))).tag(font)
+                    FontTile(font: font, weight: font.resolve(style.weight), selected: style.font == font) { style.font = font }
                 }
             }
-            Picker("Weight", selection: Binding(get: { style.font.resolve(style.weight) }, set: { style.weight = $0 })) {
-                ForEach(style.font.headlineWeights) { Text(style.font.faceName($0)).tag($0) }
-            }
+            .padding(.vertical, 4)
+            WeightSegments(font: style.font, selection: Binding(get: { style.font.resolve(style.weight) }, set: { style.weight = $0 }))
             LabeledContent("Size") {
                 Picker("Size", selection: $style.textSize) {
                     ForEach(CaptionSize.allCases) { Text($0.rawValue).tag($0) }
@@ -136,51 +137,72 @@ struct StyleInspector: View {
             Text("Output")
         }
 
+        let spec = DeviceSpec.for(style.preset)
         Section {
+            HStack(spacing: 12) {
+                FrameDiagram(family: spec.family, frame: style.frameStyle, landscape: style.landscape && style.preset != .mac)
+                    .frame(width: 44, height: 44)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(spec.name).font(.headline)
+                    Text(frameCaption(spec)).font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(.vertical, 2)
             Picker("Frame", selection: $style.frameStyle) {
                 ForEach(FrameStyle.allCases) { Text($0.rawValue).tag($0) }
             }
             .pickerStyle(.segmented)
             .labelsHidden()
             if style.frameStyle == .device {
-                let spec = DeviceSpec.for(style.preset)
-                let finishes = DeviceFinish.all(for: spec.family)
                 let current = DeviceFinish.named(style.finish, for: spec.family)
-                LabeledContent("Finish") {
-                    HStack(spacing: 8) {
-                        ForEach(finishes) { finish in
-                            Button { style.finish = finish.name } label: {
-                                Circle()
-                                    .fill(LinearGradient(colors: [finish.highlight.color, finish.metal.color, finish.shadow.color],
-                                                         startPoint: .topLeading, endPoint: .bottomTrailing))
-                                    .frame(width: 20, height: 20)
-                                    .overlay(Circle().strokeBorder(Color.primary.opacity(0.2), lineWidth: 1))
-                                    .padding(2)
-                                    .overlay(Circle().strokeBorder(current == finish ? Color.accentColor : .clear, lineWidth: 2))
-                            }
-                            .buttonStyle(.plain)
-                            .help(finish.name)
-                            .accessibilityLabel("\(finish.name) finish")
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Finish").font(.caption.weight(.medium)).foregroundStyle(.secondary)
+                    HStack(alignment: .top, spacing: 12) {
+                        ForEach(DeviceFinish.all(for: spec.family)) { finish in
+                            FinishSwatch(finish: finish, selected: current == finish) { style.finish = finish.name }
                         }
                     }
                 }
-            }
-            LabeledContent("Size") {
-                // No step: a stepped macOS slider draws a dense row of tick marks.
-                HStack {
-                    Slider(value: $style.imageScale, in: 0.5...1).frame(maxWidth: 130)
-                    Text(style.imageScale, format: .percent.precision(.fractionLength(0)))
-                        .monospacedDigit().foregroundStyle(.secondary).frame(width: 40, alignment: .trailing)
-                }
-            }
-            Toggle("Shadow", isOn: $style.shadow)
-            if style.frameStyle == .device {
-                let spec = DeviceSpec.for(style.preset)
-                Text("\(spec.name), \(DeviceFinish.named(style.finish, for: spec.family).name). Drawn from Apple's measured bezel.")
-                    .font(.caption).foregroundStyle(.secondary)
+                .padding(.vertical, 2)
             }
         } header: {
             Text("Device")
+        }
+
+        Section {
+            HStack(alignment: .top, spacing: 14) {
+                VStack(alignment: .leading, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text("Size")
+                            Spacer()
+                            Text(style.imageScale, format: .percent.precision(.fractionLength(0)))
+                                .monospacedDigit().foregroundStyle(.secondary)
+                        }
+                        // No step: a stepped macOS slider draws a dense row of tick marks.
+                        Slider(value: $style.imageScale, in: 0.5...1).labelsHidden()
+                    }
+                    Toggle("Shadow", isOn: $style.shadow)
+                }
+                if let preview {
+                    Image(nsImage: preview).resizable().interpolation(.high).aspectRatio(contentMode: .fit)
+                        .frame(maxWidth: 72, maxHeight: 96)
+                        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous).strokeBorder(Color.primary.opacity(0.15)))
+                        .accessibilityLabel("Preview of the selected shot")
+                }
+            }
+        } header: {
+            Text("Placement")
+        }
+    }
+
+    private func frameCaption(_ spec: DeviceSpec) -> String {
+        switch style.frameStyle {
+        case .device: "\(DeviceFinish.named(style.finish, for: spec.family).name). Drawn from Apple's measured bezel."
+        case .rounded: "Screenshot with rounded corners, no device."
+        case .none: "Screenshot as captured, no frame."
         }
     }
 
