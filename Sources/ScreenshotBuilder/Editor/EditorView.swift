@@ -124,7 +124,7 @@ struct EditorView: View {
             }
             Button("Cancel", role: .cancel) { removal = nil }
         } message: { Text("The source file will remain on disk.") }
-        .alert("Screenshot Builder", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
+        .alert("Matte", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
             Button("OK") { message = nil }
         } message: { Text(message ?? "") }
         .alert("Export complete", isPresented: Binding(get: { exportedFolder != nil }, set: { if !$0 { exportedFolder = nil } })) {

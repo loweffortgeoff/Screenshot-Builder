@@ -1,10 +1,10 @@
-# Screenshot Builder
+# Matte
 
 A native Mac app to frame screenshots, write captions, and export an App Store set.
 
 ## Run
 
-Requires macOS 14 or later and Xcode command line tools. Run `./scripts/build-app.sh`, then open `build/Screenshot Builder.app`. Open `Package.swift` in Xcode to edit.
+Requires macOS 14 or later and Xcode command line tools. Run `./scripts/build-app.sh`, then open `build/Matte.app`. Open `Package.swift` in Xcode to edit.
 
 ## Status
 

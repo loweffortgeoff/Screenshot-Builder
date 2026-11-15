@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+- Added an app icon: a flat champagne mat framing a cream screen on charcoal, clipped to an 824-point macOS art box. `scripts/make-icon.py` builds `Resources/Matte.icns` from a square render, and `scripts/build-app.sh` copies it in.
+- Renamed the app's display name from Screenshot Builder to Matte (`.app`, menu bar, and in-app strings). The bundle identifier and the `.shotset` type stay as they were, so existing projects keep their file association.
 - Chapter 4 (merged to `main` 2026-11-14): six starter looks (Orb, Bokeh, Editorial, Scoreboard, Rays, Calm) that style the whole set in one click, with six matching themes; an Advanced background section with one backdrop layer (Orb, Bokeh, Arcs, Rays) and a per-shot hue shift; layout-placed decorations (an eyebrow label for the app name, a section, or a number, an accent rule, accent shapes), editable on the canvas; Lead, which replaces Side by side on portrait iPhone; a theme-tinted Zoom card with a softer shadow, and Zoom crops that no longer end on a section heading; composition tiles, a fixed-width inspector, and "All shots" or "This shot only" headers. Project format version 5. The council review was dropped by Geoff's call.
 - Chapter 3 (branch `feature/chapter-3`, not merged): caption compositions (Stacked, Side by side, Big number with a stat, Overlay with a frosted band, Text only) with a per-shot override; project format version 4.
 - Mac: display captures fill the MacBook screen with a crop-position slider and a Fit choice (Auto, Fill screen, Window); a Window only frame; a MacBook redrawn from a fresh bezel measurement (deck, lit notch, specular lip, feet, contact shadow).

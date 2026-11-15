@@ -8,7 +8,7 @@ cd "${0:A:h}/.."
 project="${1:?project path}"
 output="${2:?output png}"
 shift 2
-app="$PWD/build/Screenshot Builder.app"
+app="$PWD/build/Matte.app"
 pkill -x ScreenshotBuilder 2>/dev/null || true
 open -n -a "$app" "$project" --args "$@"
 for _ in {1..40}; do
@@ -16,7 +16,7 @@ for _ in {1..40}; do
   [[ -n "$id" ]] && break
   sleep 0.25
 done
-[[ -n "${id:-}" ]] || { print "No Screenshot Builder window found"; exit 1; }
+[[ -n "${id:-}" ]] || { print "No Matte window found"; exit 1; }
 osascript -e 'tell application "System Events" to tell process "ScreenshotBuilder" to set frontmost to true' >/dev/null
 sleep 1.5
 screencapture -x -o -l "$id" "$output"

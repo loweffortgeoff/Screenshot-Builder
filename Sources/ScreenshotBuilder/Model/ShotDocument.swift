@@ -21,7 +21,7 @@ struct ShotDocument: FileDocument, Codable {
     }
     static func decode(_ data: Data) throws -> Self {
         let project = try JSONDecoder().decode(Self.self, from: data)
-        guard (1...currentVersion).contains(project.version) else { throw BuilderError.message("This project needs a newer version of Screenshot Builder.") }
+        guard (1...currentVersion).contains(project.version) else { throw BuilderError.message("This project needs a newer version of Matte.") }
         guard project.shots.count <= 10,
               Set(project.shots.map(\.id)).count == project.shots.count,
               project.style.imageScale.isFinite, (0.5...1).contains(project.style.imageScale),

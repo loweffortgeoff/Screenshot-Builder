@@ -2,17 +2,19 @@
 set -euo pipefail
 cd "${0:A:h}/.."
 swift build
-app_path="$PWD/build/Screenshot Builder.app"
-mkdir -p "$app_path/Contents/MacOS"
+app_path="$PWD/build/Matte.app"
+mkdir -p "$app_path/Contents/MacOS" "$app_path/Contents/Resources"
 cp .build/debug/ScreenshotBuilder "$app_path/Contents/MacOS/ScreenshotBuilder"
+cp Resources/Matte.icns "$app_path/Contents/Resources/Matte.icns"
 cat > "$app_path/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>CFBundleIdentifier</key><string>com.loweffortapps.screenshotbuilder</string>
-<key>CFBundleName</key><string>Screenshot Builder</string>
-<key>CFBundleDisplayName</key><string>Screenshot Builder</string>
+<key>CFBundleName</key><string>Matte</string>
+<key>CFBundleDisplayName</key><string>Matte</string>
 <key>CFBundleExecutable</key><string>ScreenshotBuilder</string>
+<key>CFBundleIconFile</key><string>Matte</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>0.1.0</string>
 <key>CFBundleVersion</key><string>1</string>
