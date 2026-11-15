@@ -1,7 +1,6 @@
 # TODO
 
 ## Next
-- iPhone Duo hands-on check (Geoff): build a real Duo set from new captures and judge it against the live App Store sets. Branch `feature/iphone-duo`, in the main checkout.
 - Chapter 4 open call (Geoff): the Style tab still scrolls at 1440 × 920 (spec R6.4 not met). Keep it, or move the shot section to its own place.
 - iPad acceptance: not tested by Geoff (2026-11-14, no iPad Pro on hand). iPad output can be checked with iPad Pro simulator captures; Geoff's acceptance stays open.
 
@@ -15,6 +14,7 @@
 - Outside v1: freeform editing, layers, stickers, AI copy, localization management, and direct upload. These do not serve the initial fixed-layout workflow.
 
 ## Done
+- 2026-11-15 — [x] iPhone Duo hands-on trial (Geoff): a 9-shot Task(ed) set from the October Duo captures, mixing closed and open shots in portrait and landscape, worked as intended. Not every headline was re-created; frames and fold choice were the check.
 - 2026-11-15 — [x] iPhone Duo device on `feature/iphone-duo`: a 2007 × 2853 size, a drawn open and closed frame measured from Apple's Duo PNGs, and a per-shot frame choice from the capture size. Tucked Duo set rebuilt in Matte for visual acceptance. Not merged.
 - 2026-11-14 — Chapter 4 hands-on check passed (Geoff, 29 of 30 items; his question on the scope headers answered: they are labels, not controls). Merged to `main` by fast-forward at `69a6012`; branch and worktree removed.
 - 2026-11-14 — Chapter 4 implemented on `feature/chapter-4` (M0 to M8, M10): judge calibration (Sol), Lead, decorations and format 5, backdrops and hue shift, six starter looks, editor polish, Zoom card tint and crop fix; M7 found no frame defects. Code review by code-reviewer and Fable; confirmed bugs fixed in separate commits. M9 (council review) dropped by Geoff.
