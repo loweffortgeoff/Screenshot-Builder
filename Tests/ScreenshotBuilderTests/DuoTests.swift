@@ -76,6 +76,57 @@ struct DuoTests {
         #expect((0.15...0.25).contains(tone.red) && DeviceSpec.duoClosed.bezelTone == nil && DeviceSpec.proMax.bezelTone == nil)
     }
 
+    // MARK: Renderer
+
+    @Test func eachCaptureGetsItsFrame() throws {
+        var style = SetStyle(); style.preset = .duo
+        let cases: [(CGSize, DeviceSpec, Bool)] = [
+            (CGSize(width: 2007, height: 2853), .duoOpen, false), (CGSize(width: 2853, height: 2007), .duoOpen, true),
+            (CGSize(width: 1398, height: 2034), .duoClosed, false), (CGSize(width: 2034, height: 1398), .duoClosed, true)]
+        for (capture, spec, landscape) in cases {
+            let shot = try fixture(capture)
+            let c = ShotRenderer.compose(shot: shot, style: style, sourceSize: capture)
+            let front = try #require(c.layers.last)
+            let device = try #require(front.device)
+            #expect(device.spec == spec && device.landscape == landscape, "\(capture)")
+            #expect(CGRect(origin: .zero, size: style.size).insetBy(dx: -0.5, dy: -0.5).contains(front.bounds), "\(capture)")
+            #expect(front.bounds.minY >= c.subtitleRect.maxY - 0.5, "\(capture) clears the caption")
+            #expect(!ShotRenderer.warnings(shot: shot, style: style).contains { $0.contains("black bars") }, "\(capture)")
+        }
+    }
+
+    @Test func oddCaptureUsesOpenFrameAndWarns() throws {
+        var style = SetStyle(); style.preset = .duo
+        let phone = CGSize(width: 1320, height: 2868)
+        let shot = try fixture(phone)
+        let c = ShotRenderer.compose(shot: shot, style: style, sourceSize: phone)
+        #expect(c.layers.last?.device?.spec == .duoOpen)
+        #expect(ShotRenderer.warnings(shot: shot, style: style).contains { $0.contains("iPhone Duo") })
+    }
+
+    /// Front closed portrait, companion open landscape: the companion takes the front shot's frame (on black glass),
+    /// and both devices stay on the canvas and clear of the caption, in every caption layout.
+    @Test func duoArrangementMixesFoldStates() throws {
+        for layout in CaptionLayout.allCases {
+            var style = SetStyle(); style.preset = .duo; style.layout = layout
+            var shot = try fixture(CGSize(width: 1398, height: 2034))
+            shot.arrangement = .duo
+            let c = ShotRenderer.compose(shot: shot, style: style, sourceSize: CGSize(width: 1398, height: 2034),
+                                         companionSize: CGSize(width: 2853, height: 2007))
+            #expect(c.layers.count == 2, "\(layout)")
+            let canvas = CGRect(origin: .zero, size: style.size)
+            for layer in c.layers {
+                #expect(layer.device?.spec == .duoClosed, "\(layout)")
+                let visible = layer.bounds.intersection(canvas)
+                #expect(visible.width * visible.height >= layer.bounds.width * layer.bounds.height * 0.5, "\(layout)")
+                if layout.hasCaption {
+                    if layout.captionOnTop { #expect(layer.bounds.minY >= c.subtitleRect.maxY - 0.5, "\(layout)") }
+                    else { #expect(layer.bounds.maxY <= c.headlineRect.minY + 0.5, "\(layout)") }
+                }
+            }
+        }
+    }
+
     @Test func openFrameHasNoCamera() {
         let frame = DeviceFrame(spec: .duoOpen, landscape: false, rect: CGRect(origin: .zero, size: DeviceSpec.duoOpen.outer))
         #expect(frame.punchHoleRect == nil && frame.screenRect.size == CGSize(width: 2007, height: 2853))
