@@ -6,7 +6,7 @@
 
 ## Backlog
 - Local MCP: explore a local MCP server so Geoff's agents can run the app. Added by Geoff 2026-11-15; exploration only, no scope or version chosen.
-- iPhone Duo mockup frames: a mockup frame that presents two iPhones together, as a device and frame choice. The existing Duo arrangement pairs two captures inside the current single-device frames; this would be its own frame. Requested by Geoff 2026-11-14; not scoped.
+- iPhone Duo device: add the foldable iPhone Duo as a size and drawn frame (open and closed, portrait and landscape), so Geoff can rebuild his Duo App Store sets in Matte. Requested 2026-11-14; corrected and designed 2026-11-15 in `docs/superpowers/specs/2026-11-15-iphone-duo-design.md` (the first entry misread it as two iPhones).
 - Film grain on large gradients: both GPT judges named it in the chapter 4 calibration (2026-11-14). Outside the chapter 4 scope, and M9 was dropped, so it stays here until Geoff asks.
 - Highlight menu: typed markup that spans words (for example `*one tap*`) shows unchecked and cannot be cleared from the menu; a word both typed and stored needs two clicks. Found in code review 2026-11-13; low impact because the menu writes single-word accents.
 - Mac fit advisory: when Auto chooses Window, no advisory names that choice (only an explicit Window does). Kept quiet to avoid a warning on every Mac window set. Found in the chapter 3 review, 2026-11-14.
