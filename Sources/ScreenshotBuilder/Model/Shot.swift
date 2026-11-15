@@ -468,7 +468,7 @@ extension Shot {
     /// A blank screen at the device's native size, for the empty-set preview.
     static func placeholder(for style: SetStyle) -> Shot {
         var screen = DeviceSpec.for(style.preset).screen
-        if style.landscape && style.preset != .mac { screen = CGSize(width: screen.height, height: screen.width) }
+        if style.isLandscape { screen = CGSize(width: screen.height, height: screen.width) }
         let width = Int(screen.width / 4), height = Int(screen.height / 4)
         var data = Data()
         if let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,

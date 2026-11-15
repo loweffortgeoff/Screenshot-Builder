@@ -435,8 +435,11 @@ enum ShotRenderer {
         let captionHeight = hasCaption ? (group?.height ?? (stacksCaption ? metrics.maxBand + rowsExtra : needed + rowsExtra)) : 0
         let separation = hasCaption ? metrics.separation : 0
         let top = margin * 1.25
-        let spec = DeviceSpec.for(style.preset)
-        let isPad = spec.family == .pad
+        // On iPhone Duo each capture picks the frame (open or closed) and turns the device; elsewhere the set decides.
+        let pick = DeviceSpec.for(style.preset, capture: sourceSize)
+        let spec = pick.spec
+        // iPhone Duo uses the iPad layout: its canvas (0.70) and devices are close to iPad proportions (0.75).
+        let usesTabletLayout = spec.family == .pad || spec.family == .foldable
         // Window only is a Mac frame; every other preset draws it as Rounded.
         let frameStyle: FrameStyle = style.frameStyle == .windowOnly && spec.family != .laptop ? .rounded : style.frameStyle
         // Auto fills the screen with a display capture. The pixel check runs once, and only where it can matter.
@@ -445,7 +448,7 @@ enum ShotRenderer {
                                width: size.width - margin * 2,
                                height: size.height - top - margin - captionHeight - separation)
         var padFillY: CGFloat = 1
-        if isPad {
+        if usesTabletLayout {
             // An iPad is height-limited inside the image area, so it gets more height: a thin gap under a top caption
             // and thin outer margins. The caption side keeps its clearance, a thin gap on top and bottom alike. Vertically, the default scale fills the
             // area and smaller scales shrink it; horizontally, scale 1.0 lets a width-limited device reach the side margin.
@@ -456,7 +459,7 @@ enum ShotRenderer {
             imageArea = CGRect(x: margin, y: topEdge, width: size.width - margin * 2, height: bottomEdge - topEdge)
             padFillY = min(1, CGFloat(style.imageScale) / 0.94)
         }
-        var available = isPad
+        var available = usesTabletLayout
             ? imageArea.insetBy(dx: imageArea.width * (1 - style.imageScale) / 2, dy: imageArea.height * (1 - padFillY) / 2)
             : imageArea.insetBy(dx: imageArea.width * (1 - style.imageScale) / 2,
                                 dy: imageArea.height * (1 - style.imageScale) / 2)
@@ -508,7 +511,7 @@ enum ShotRenderer {
             let y = style.layout == .bleedBottom ? available.minY + inset : available.maxY - inset - height
             return CGRect(x: available.midX - width / 2, y: y, width: width, height: height)
         }
-        let rotatedDevice = style.landscape && style.preset != .mac
+        let rotatedDevice = style.preset == .duo ? pick.landscape : style.isLandscape
         // Duo needs a second capture; without one (a one-shot set) the shot draws as Standard. Text only has no device.
         let arrangement: Arrangement = !hasDevice || (shot.arrangement == .duo && companionSize == nil) ? .standard : shot.arrangement
         let companionSize = companionSize ?? sourceSize
@@ -675,7 +678,7 @@ enum ShotRenderer {
             // The canvas y-axis points down, so a positive angle turns clockwise: the device's top leans right.
             let sign: CGFloat = arrangement == .tiltRight ? 1 : -1
             var tiltScale: CGFloat = 0.97
-            if (isPad || composition == .sideBySide) && !bleeds {
+            if (usesTabletLayout || composition == .sideBySide) && !bleeds {
                 // The fuller iPad fit (and a Side by side half) leaves little room, so shrink until the rotated corners stay inside it.
                 let lean = 8 * degrees
                 tiltScale = min(tiltScale, available.height / (base.height * cos(lean) + base.width * sin(lean)),
@@ -704,7 +707,7 @@ enum ShotRenderer {
         case .duo:
             // iPad: sizes are fractions of the plain fit, so a bleed layout does not push the pair past the side margins.
             // The front centre sits 6% of that height below the back centre, so the pair reads grounded.
-            let standard = isPad ? Self.fit(objectAspect, in: available) : base
+            let standard = usesTabletLayout ? Self.fit(objectAspect, in: available) : base
             // On iPad the side-by-side spread shrinks until both rotated devices fit between the side margins.
             var spread: CGFloat = 1
             func padPair() -> (back: CGRect, front: CGRect) {
@@ -716,15 +719,15 @@ enum ShotRenderer {
                     .union(Layer(device: nil, imageRect: pair.front, rotation: -3 * degrees, frame: pair.front).bounds)
             }
             var padLift: CGFloat = 0
-            if isPad {
+            if usesTabletLayout {
                 while spread > 0, padBounds(padPair()).width > size.width - margin * 2 { spread -= 0.05 }
                 spread = max(0, spread)
                 // The lower front device must not run past the image area's far edge.
                 padLift = min(0, available.maxY - padBounds(padPair()).maxY)
             }
-            let back = isPad ? padPair().back.offsetBy(dx: 0, dy: padLift)
+            let back = usesTabletLayout ? padPair().back.offsetBy(dx: 0, dy: padLift)
                              : scaled(base, 0.7, dx: -base.width * 0.19, dy: -base.height * 0.04)
-            let front = isPad ? padPair().front.offsetBy(dx: 0, dy: padLift)
+            let front = usesTabletLayout ? padPair().front.offsetBy(dx: 0, dy: padLift)
                               : scaled(base, 0.76, dx: base.width * 0.17, dy: base.height * 0.06)
             layers = [layer(in: back, capture: companionSize, rotation: 7 * degrees, companion: true),
                       layer(in: front, capture: sourceSize, rotation: -3 * degrees)]
@@ -887,7 +890,7 @@ enum ShotRenderer {
         // Keep tilted and Duo devices on the canvas horizontally (Hero places itself).
         if [.tiltLeft, .tiltRight, .duo].contains(arrangement),
            let bounds = layers.map(\.bounds).reduce(nil, { (acc: CGRect?, r) in acc.map { $0.union(r) } ?? r }) {
-            let edge = isPad && arrangement == .duo ? margin : margin * 0.8
+            let edge = usesTabletLayout && arrangement == .duo ? margin : margin * 0.8
             var dx: CGFloat = 0
             if bounds.width <= zone.width - edge * 2 {
                 if bounds.minX < zone.minX + edge { dx = zone.minX + edge - bounds.minX }
@@ -1041,8 +1044,8 @@ enum ShotRenderer {
         NSGraphicsContext.current = context
         cg.translateBy(x: 0, y: CGFloat(height))
         cg.scaleBy(x: CGFloat(width) / size.width, y: -CGFloat(height) / size.height)
-        // Pinned rule (R3.4): iPad-family presets get 20% stronger glows in any orientation.
-        let glowBoost: CGFloat = DeviceSpec.for(style.preset).family == .pad ? 1.2 : 1
+        // Pinned rule (R3.4): iPad-family presets get 20% stronger glows in any orientation. iPhone Duo shares the iPad canvas scale.
+        let glowBoost: CGFloat = [.pad, .foldable].contains(DeviceSpec.for(style.preset).family) ? 1.2 : 1
         // Hue shift turns this shot's background; the stored style keeps its colors.
         let fill = style.background(at: position.index, of: position.count)
         drawBackground(fill, in: cg, size: size, position: style.spanSet ? position : .single, glowBoost: glowBoost)

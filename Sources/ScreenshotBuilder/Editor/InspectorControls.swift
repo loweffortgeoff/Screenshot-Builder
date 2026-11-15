@@ -132,11 +132,11 @@ struct FrameDiagram: View {
                 context.fill(Path(roundedRect: screen, cornerRadius: frame == .none ? 0 : 2), with: .color(.accentColor.opacity(0.35)))
                 return
             }
-            let aspect: CGFloat = family == .pad ? 0.75 : 0.48
+            let aspect: CGFloat = family == .pad ? 0.75 : family == .foldable ? 0.70 : 0.48
             var body = CGSize(width: size.height * 0.86 * aspect, height: size.height * 0.86)
             if landscape { body = CGSize(width: body.height, height: body.width) }
             let outer = CGRect(x: (size.width - body.width) / 2, y: (size.height - body.height) / 2, width: body.width, height: body.height)
-            let radius = min(outer.width, outer.height) * (family == .pad ? 0.1 : 0.2)
+            let radius = min(outer.width, outer.height) * (family == .pad ? 0.1 : family == .foldable ? 0.12 : 0.2)
             if frame == .device {
                 context.stroke(Path(roundedRect: outer, cornerRadius: radius), with: ink, lineWidth: line)
                 let screen = outer.insetBy(dx: 2.5, dy: 2.5)

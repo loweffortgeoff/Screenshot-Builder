@@ -45,8 +45,33 @@ struct DeviceFrame {
     }
     var screenPath: CGPath {
         var t = transform
-        return CGPath(roundedRect: screenLocal, cornerWidth: spec.screenRadius, cornerHeight: spec.screenRadius, transform: &t)
+        return Self.roundedPath(screenLocal, left: spec.hingeScreenRadius ?? spec.screenRadius, right: spec.screenRadius, transform: &t)
     }
+    /// The front camera punch hole on the canvas, if the device has one.
+    var punchHoleRect: CGRect? {
+        spec.punchHole.map { $0.offsetBy(dx: screenLocal.minX, dy: screenLocal.minY).applying(transform) }
+    }
+
+    /// A rounded rect whose left corners (the hinge side on a folded iPhone Duo) can use a different radius.
+    static func roundedPath(_ rect: CGRect, left: CGFloat, right: CGFloat, transform: UnsafePointer<CGAffineTransform>? = nil) -> CGPath {
+        let l = max(0, min(left, rect.width / 2, rect.height / 2)), r = max(0, min(right, rect.width / 2, rect.height / 2))
+        guard l != r else { return CGPath(roundedRect: rect, cornerWidth: l, cornerHeight: l, transform: transform) }
+        let path = CGMutablePath()
+        let t = transform?.pointee ?? .identity
+        path.move(to: CGPoint(x: rect.minX + l, y: rect.minY), transform: t)
+        path.addArc(tangent1End: CGPoint(x: rect.maxX, y: rect.minY), tangent2End: CGPoint(x: rect.maxX, y: rect.maxY), radius: r, transform: t)
+        path.addArc(tangent1End: CGPoint(x: rect.maxX, y: rect.maxY), tangent2End: CGPoint(x: rect.minX, y: rect.maxY), radius: r, transform: t)
+        path.addArc(tangent1End: CGPoint(x: rect.minX, y: rect.maxY), tangent2End: CGPoint(x: rect.minX, y: rect.minY), radius: l, transform: t)
+        path.addArc(tangent1End: CGPoint(x: rect.minX, y: rect.minY), tangent2End: CGPoint(x: rect.maxX, y: rect.minY), radius: l, transform: t)
+        path.closeSubpath()
+        return path
+    }
+
+    /// The body outline (or a band layer `inset` inside it), honoring a tighter hinge-side radius.
+    private func bodyPath(_ rect: CGRect, inset: CGFloat = 0) -> CGPath {
+        Self.roundedPath(rect, left: (spec.hingeBodyRadius ?? spec.bodyRadius) - inset, right: spec.bodyRadius - inset)
+    }
+
     /// The silhouette, for shadows.
     var silhouette: CGPath {
         let path = CGMutablePath()
@@ -64,7 +89,7 @@ struct DeviceFrame {
 
     private func lidPath(_ rect: CGRect, inset: CGFloat = 0) -> CGPath {
         guard spec.family == .laptop else {
-            return CGPath(roundedRect: rect, cornerWidth: spec.bodyRadius, cornerHeight: spec.bodyRadius, transform: nil)
+            return bodyPath(rect)
         }
         // Laptop lid: round top corners, then a soft quadratic taper at the bottom corners.
         let r = spec.bodyRadius - inset
@@ -202,17 +227,16 @@ struct DeviceFrame {
                                                  (band * 0.75, finish.metal), (band, RGBColor(0.12, 0.12, 0.12))]
             for (inset, tone) in layers {
                 let r = body.insetBy(dx: inset, dy: inset)
-                cg.addPath(CGPath(roundedRect: r, cornerWidth: spec.bodyRadius - inset, cornerHeight: spec.bodyRadius - inset, transform: nil))
+                cg.addPath(bodyPath(r, inset: inset))
                 cg.setFillColor(color(tone)); cg.fillPath()
             }
             // Glass edge fades into the black bezel.
             let glass = body.insetBy(dx: band + 2, dy: band + 2)
-            cg.addPath(CGPath(roundedRect: glass, cornerWidth: spec.bodyRadius - band - 2, cornerHeight: spec.bodyRadius - band - 2, transform: nil))
-            cg.setFillColor(color(RGBColor(0.02, 0.02, 0.02))); cg.fillPath()
+            cg.addPath(bodyPath(glass, inset: band + 2))
+            cg.setFillColor(color(spec.bezelTone ?? RGBColor(0.02, 0.02, 0.02))); cg.fillPath()
             // Polished rim: a thin specular line lit from the top left.
             cg.saveGState()
-            cg.addPath(CGPath(roundedRect: body.insetBy(dx: band * 0.3, dy: band * 0.3),
-                              cornerWidth: spec.bodyRadius - band * 0.3, cornerHeight: spec.bodyRadius - band * 0.3, transform: nil))
+            cg.addPath(bodyPath(body.insetBy(dx: band * 0.3, dy: band * 0.3), inset: band * 0.3))
             cg.setLineWidth(max(2, band * 0.16))
             cg.replacePathWithStrokedPath()
             cg.clip()
@@ -247,6 +271,25 @@ struct DeviceFrame {
         drawScreen()
         if spec.family == .laptop { drawGlassReflection(cg) }
         cg.restoreGState()
+
+        // Punch-hole front camera, above the capture: black, a faint rim, and a lens, like the Dynamic Island camera.
+        if let hole = spec.punchHole {
+            cg.saveGState()
+            cg.concatenate(transform)
+            let r = hole.offsetBy(dx: screenLocal.minX, dy: screenLocal.minY)
+            cg.setFillColor(CGColor(red: 0.01, green: 0.01, blue: 0.015, alpha: 1))
+            cg.fillEllipse(in: r)
+            cg.setStrokeColor(CGColor(gray: 0.17, alpha: 1))
+            cg.setLineWidth(3)
+            cg.strokeEllipse(in: r.insetBy(dx: 1.5, dy: 1.5))
+            let lens = r.width * 0.42
+            let lensRect = CGRect(x: r.midX - lens / 2, y: r.midY - lens / 2, width: lens, height: lens)
+            cg.setFillColor(CGColor(red: 0.07, green: 0.08, blue: 0.13, alpha: 1))
+            cg.fillEllipse(in: lensRect)
+            cg.setFillColor(CGColor(red: 0.25, green: 0.3, blue: 0.45, alpha: 0.7))
+            cg.fillEllipse(in: CGRect(x: lensRect.minX + lens * 0.22, y: lensRect.minY + lens * 0.2, width: lens * 0.22, height: lens * 0.22))
+            cg.restoreGState()
+        }
 
         // Dynamic Island or camera notch, above the capture.
         if let island = spec.island {

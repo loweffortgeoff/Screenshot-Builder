@@ -159,7 +159,7 @@ struct StyleInspector: View {
     @ViewBuilder private var deviceSection: some View {
         Section {
             // Size and orientation live in the toolbar; this row confirms what export writes.
-            LabeledContent("Export", value: "\(style.preset.title)\(style.landscape && style.preset != .mac ? " landscape" : ""), \(style.dimensionLabel) px PNG")
+            LabeledContent("Export", value: "\(style.preset.title)\(style.isLandscape ? " landscape" : ""), \(style.dimensionLabel) px PNG")
         } header: {
             Text("Output")
         }
@@ -167,7 +167,7 @@ struct StyleInspector: View {
         let spec = DeviceSpec.for(style.preset)
         Section {
             HStack(spacing: 12) {
-                FrameDiagram(family: spec.family, frame: style.frameStyle, landscape: style.landscape && style.preset != .mac)
+                FrameDiagram(family: spec.family, frame: style.frameStyle, landscape: style.isLandscape)
                     .frame(width: 44, height: 44)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(spec.name).font(.headline)
@@ -230,6 +230,7 @@ struct StyleInspector: View {
     private func frameCaption(_ spec: DeviceSpec) -> String {
         switch style.frameStyle {
         case .device: "\(DeviceFinish.named(style.finish, for: spec.family).name). Drawn from Apple's measured bezel."
+            + (spec.family == .foldable ? " Each capture picks open or closed, and portrait or landscape." : "")
         case .rounded: "Screenshot with rounded corners, no device."
         case .none: "Screenshot as captured, no frame."
         case .windowOnly: style.preset == .mac ? "Mac window with its own corners and shadow, no laptop."

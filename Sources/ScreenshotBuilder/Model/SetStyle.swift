@@ -285,9 +285,11 @@ struct SetStyle: Codable, Equatable {
     var decor = Decor()
     var backdrop = Backdrop()
 
+    /// Landscape output. Mac and iPhone Duo have one orientation, so the stored flag is ignored there.
+    var isLandscape: Bool { landscape && preset.hasOrientation }
     var size: CGSize {
         let base = preset.size
-        return landscape && preset != .mac ? CGSize(width: base.height, height: base.width) : base
+        return isLandscape ? CGSize(width: base.height, height: base.width) : base
     }
     var dimensionLabel: String { "\(Int(size.width)) × \(Int(size.height))" }
 
@@ -339,6 +341,7 @@ struct SetStyle: Codable, Equatable {
     /// The composition `shot` really draws with. Rules, in order:
     /// - Screenshot only has no caption, so there is nothing to compose: Stacked, and Text only does not apply.
     /// - Side by side on a portrait phone is Lead, which draws as Stacked (see `isLead`).
+    /// - Side by side on iPhone Duo with a landscape capture leaves the device at about 9% of the canvas: Stacked.
     /// - Side by side needs one device beside the caption, so Duo and Zoom shots fall back to Stacked.
     /// - Overlay hides the lower third of the screen under its band, where a Zoom source may sit and its card needs free
     ///   canvas, so Zoom shots fall back to Stacked. Duo works.
@@ -348,6 +351,7 @@ struct SetStyle: Codable, Equatable {
         let wanted = shot.composition ?? composition
         switch wanted {
         case .sideBySide where isPortraitPhone: return .stacked
+        case .sideBySide where preset == .duo && shot.cgImage.map({ $0.width > $0.height }) == true: return .stacked
         case .sideBySide where shot.arrangement == .duo || shot.arrangement == .callout: return .stacked
         case .overlay where shot.arrangement == .callout: return .stacked
         case .bigNumber where shot.stat.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty: return .stacked

@@ -16,7 +16,7 @@ enum FrameStyle: String, Codable, CaseIterable, Identifiable {
 /// and fit account for them.
 /// `classicPhone` is an estimate for the 5.5-inch home-button size; Apple no longer publishes that bezel.
 struct DeviceSpec: Equatable {
-    enum Family { case phone, classicPhone, pad, laptop }
+    enum Family { case phone, classicPhone, foldable, pad, laptop }
     enum Side { case left, right }
     struct Button: Equatable {
         var side: Side
@@ -37,6 +37,13 @@ struct DeviceSpec: Equatable {
     var islandTopGap: CGFloat = 0
     var buttons: [Button] = []
     var buttonDepth: CGFloat = 0
+    /// Corner radii on the left (hinge) side, where they differ from the right side. Closed iPhone Duo only.
+    var hingeBodyRadius: CGFloat? = nil
+    var hingeScreenRadius: CGFloat? = nil
+    /// A round front camera in the screen, in screen coordinates. Closed iPhone Duo only.
+    var punchHole: CGRect? = nil
+    /// The bezel color inside the metal band, where it is not black glass. Unfolded iPhone Duo only.
+    var bezelTone: RGBColor? = nil
     // Laptop only: lid chin below the black bezel, the base, and its two rubber feet.
     var chin: CGFloat = 0
     var baseSize: CGSize = .zero
@@ -81,6 +88,25 @@ struct DeviceSpec: Equatable {
                   Button(side: .left, start: 700, length: 170), Button(side: .right, start: 480, length: 210)],
         buttonDepth: 8)
 
+    /// iPhone Duo unfolded, measured 2026-11-15 from Apple's `iPhone Duo - Night Sky - Inner Open Portrait.png`.
+    /// The body corners measure 239 at the top and 225 at the bottom; one radius of 232 stands in for both.
+    /// Apple's image shows no fold crease, so none is drawn. Small top-edge buttons are left out.
+    static let duoOpen = DeviceSpec(
+        name: "iPhone Duo", family: .foldable, screen: CGSize(width: 2007, height: 2853),
+        bezel: Insets(top: 70, left: 62, bottom: 62, right: 62), bodyRadius: 232, screenRadius: 160, band: 12,
+        buttons: [Button(side: .left, start: 386, length: 197), Button(side: .left, start: 628, length: 197)],
+        buttonDepth: 8, bezelTone: RGBColor(0.19, 0.19, 0.2))
+
+    /// iPhone Duo folded (outer screen), measured 2026-11-15 from `iPhone Duo - Night Sky - Outer Closed Portrait.png`.
+    /// The hinge is on the left: tighter corners and a wider bezel there. The diagonal measure gave 80 to 99 on that
+    /// side because it meets the hinge spine; 40 matches the front slab in a 1:1 overlay. The spine itself is not drawn. The front camera is a punch hole at the top right.
+    static let duoClosed = DeviceSpec(
+        name: "iPhone Duo", family: .foldable, screen: CGSize(width: 1398, height: 2034),
+        bezel: Insets(top: 56, left: 77, bottom: 48, right: 48), bodyRadius: 230, screenRadius: 174, band: 12,
+        buttons: [Button(side: .right, start: 615, length: 338)], buttonDepth: 9,
+        hingeBodyRadius: 40, hingeScreenRadius: 24,
+        punchHole: CGRect(x: 1200.5, y: 89, width: 108, height: 108))
+
     static let pad13 = DeviceSpec(
         name: "iPad Pro 13-inch (M5)", family: .pad, screen: CGSize(width: 2064, height: 2752),
         bezel: Insets(top: 94, left: 90, bottom: 90, right: 90), bodyRadius: 157, screenRadius: 58, band: 10,
@@ -105,10 +131,23 @@ struct DeviceSpec: Equatable {
         case .phone69, .phone65: proMax
         case .phone63, .phone61: pro
         case .phone55: classic
+        case .duo: duoOpen
         case .pad13, .pad129: pad13
         case .pad11: pad11
         case .mac: macBookAir
         }
+    }
+
+    /// The device and its turn for one shot. On iPhone Duo the capture decides: a capture shaped like the outer screen
+    /// (1398 × 2034, either way, within 1%, so resized captures count) draws closed, anything else open, and a wide
+    /// capture turns the device to landscape. The two shapes differ by 2.3%. Other presets use the set's device; the
+    /// caller applies the set's orientation.
+    static func `for`(_ preset: OutputPreset, capture: CGSize) -> (spec: DeviceSpec, landscape: Bool) {
+        guard preset == .duo else { return (self.for(preset), false) }
+        let outer = duoClosed.screen.width / duoClosed.screen.height
+        let aspect = min(capture.width, capture.height) / max(capture.width, capture.height, 1)
+        let closed = abs(aspect - outer) / outer <= 0.01
+        return (closed ? duoClosed : duoOpen, capture.width > capture.height)
     }
 }
 
@@ -133,6 +172,10 @@ struct DeviceFinish: Identifiable, Equatable {
              make("Silver", 0x6C6C6C, 0xBFBFBF, 0xEFEFEF, 0xE1E1E1),
              make("Glacier", 0x6F7C8F, 0xB9C5D6, 0xE6EEF8, 0xD7E1F1),
              make("Burgundy", 0x2A161A, 0x57353B, 0x8E5D66, 0xC48892)]
+        case .foldable:
+            // Sampled from the iPhone Duo Night Sky and Star White bezels, 2026-11-15.
+            [make("Night Sky", 0x161D29, 0x3A4862, 0x8EA3CA, 0x505F7C),
+             make("Star White", 0x6E6B63, 0xBEBCB5, 0xF4F3EF, 0xD2D0C9)]
         case .pad:
             [make("Space Black", 0x3A383C, 0x2D2A2D, 0x858187, 0x858187),
              make("Silver", 0x7D7E80, 0x858687, 0xD4D5D6, 0xD4D5D6)]

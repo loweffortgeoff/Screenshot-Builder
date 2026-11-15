@@ -339,7 +339,7 @@ struct PreviewPane: View {
 
     private var footerLine: some View {
         let percent = Int(((zoom ?? fitZoom) * 100).rounded())
-        let orientation = style.landscape && style.preset != .mac ? " landscape" : ""
+        let orientation = style.isLandscape ? " landscape" : ""
         return HStack(spacing: 6) {
             Image(systemName: style.preset.symbol)
             Text(error ?? "\(style.preset.title)\(orientation) · \(style.dimensionLabel) px · Shot \(position.index + 1) of \(position.count) · \(percent)%")
