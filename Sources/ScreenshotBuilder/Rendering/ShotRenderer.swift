@@ -508,7 +508,7 @@ enum ShotRenderer {
             let y = style.layout == .bleedBottom ? available.minY + inset : available.maxY - inset - height
             return CGRect(x: available.midX - width / 2, y: y, width: width, height: height)
         }
-        let rotatedDevice = style.landscape && style.preset != .mac
+        let rotatedDevice = style.isLandscape
         // Duo needs a second capture; without one (a one-shot set) the shot draws as Standard. Text only has no device.
         let arrangement: Arrangement = !hasDevice || (shot.arrangement == .duo && companionSize == nil) ? .standard : shot.arrangement
         let companionSize = companionSize ?? sourceSize

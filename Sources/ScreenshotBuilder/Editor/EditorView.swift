@@ -44,7 +44,7 @@ struct EditorView: View {
                 }
                 .help("App Store screenshot size: \(document.style.dimensionLabel) pixels")
                 .frame(width: 180)
-                if document.style.preset != .mac {
+                if document.style.preset.hasOrientation {
                     Picker("Orientation", selection: $document.style.landscape) {
                         Label("Portrait", systemImage: "rectangle.portrait").tag(false)
                         Label("Landscape", systemImage: "rectangle").tag(true)
@@ -330,7 +330,7 @@ extension OutputPreset {
     var symbol: String {
         switch self {
         case .phone55: "iphone.gen1"
-        case .phone69, .phone65, .phone63, .phone61: "iphone"
+        case .phone69, .phone65, .phone63, .phone61, .duo: "iphone"
         case .pad13, .pad129, .pad11: "ipad"
         case .mac: "laptopcomputer"
         }

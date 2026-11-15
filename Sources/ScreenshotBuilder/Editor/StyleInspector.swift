@@ -159,7 +159,7 @@ struct StyleInspector: View {
     @ViewBuilder private var deviceSection: some View {
         Section {
             // Size and orientation live in the toolbar; this row confirms what export writes.
-            LabeledContent("Export", value: "\(style.preset.title)\(style.landscape && style.preset != .mac ? " landscape" : ""), \(style.dimensionLabel) px PNG")
+            LabeledContent("Export", value: "\(style.preset.title)\(style.isLandscape ? " landscape" : ""), \(style.dimensionLabel) px PNG")
         } header: {
             Text("Output")
         }
@@ -167,7 +167,7 @@ struct StyleInspector: View {
         let spec = DeviceSpec.for(style.preset)
         Section {
             HStack(spacing: 12) {
-                FrameDiagram(family: spec.family, frame: style.frameStyle, landscape: style.landscape && style.preset != .mac)
+                FrameDiagram(family: spec.family, frame: style.frameStyle, landscape: style.isLandscape)
                     .frame(width: 44, height: 44)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(spec.name).font(.headline)

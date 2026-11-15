@@ -7,7 +7,8 @@ extension UTType {
 
 struct ShotDocument: FileDocument, Codable {
     static var readableContentTypes: [UTType] { [.shotSet] }
-    static let currentVersion = 5
+    /// Version 6 adds the iPhone Duo preset, so older builds refuse Duo files with a clear message.
+    static let currentVersion = 6
     var version = currentVersion
     var style = SetStyle()
     var shots: [Shot] = []

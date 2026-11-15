@@ -285,9 +285,11 @@ struct SetStyle: Codable, Equatable {
     var decor = Decor()
     var backdrop = Backdrop()
 
+    /// Landscape output. Mac and iPhone Duo have one orientation, so the stored flag is ignored there.
+    var isLandscape: Bool { landscape && preset.hasOrientation }
     var size: CGSize {
         let base = preset.size
-        return landscape && preset != .mac ? CGSize(width: base.height, height: base.width) : base
+        return isLandscape ? CGSize(width: base.height, height: base.width) : base
     }
     var dimensionLabel: String { "\(Int(size.width)) × \(Int(size.height))" }
 
