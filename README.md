@@ -8,7 +8,7 @@ Requires macOS 14 or later and Xcode command line tools. Run `./scripts/build-ap
 
 ## Status
 
-Chapters 1 to 4 are merged to `main` (chapter 4 on 2026-11-14, `69a6012`). Chapter 4 (starter looks and a product pass) has no council score by Geoff's call; he accepted it from the hands-on checklist `docs/superpowers/plans/2026-11-14-chapter-4-hands-on.md`. An ad-hoc UI council (Opus, Sonnet, Fable) scored the app 3.8 at v1 and 7.5 after chapters 1 and 2 (accepted by Geoff on 2026-11-13). Chapter 3 scored medians of 7.3, 7.4, and 7.4 over three rounds; results are in `docs/superpowers/council/chapter-3-results.md`. Plans are in `docs/superpowers/plans/` and specs in `docs/superpowers/specs/`.
+Chapters 1 to 4 are merged to `main` (chapter 4 on 2026-11-14, `69a6012`). Chapter 4 (starter looks and a product pass) has no council score by Geoff's call; he accepted it from the hands-on checklist `docs/superpowers/plans/2026-11-14-chapter-4-hands-on.md`. Its last two open calls closed on 2026-11-15: the Style tab keeps its scroll, and iPad output is accepted from iPad Pro simulator captures. The iPhone Duo device merged on 2026-11-15 (`ad391f9`). An ad-hoc UI council (Opus, Sonnet, Fable) scored the app 3.8 at v1 and 7.5 after chapters 1 and 2 (accepted by Geoff on 2026-11-13). Chapter 3 scored medians of 7.3, 7.4, and 7.4 over three rounds; results are in `docs/superpowers/council/chapter-3-results.md`. Plans are in `docs/superpowers/plans/` and specs in `docs/superpowers/specs/`.
 
 ## Review harness
 

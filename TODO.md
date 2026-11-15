@@ -13,6 +13,7 @@
 - Outside v1: freeform editing, layers, stickers, AI copy, localization management, and direct upload. These do not serve the initial fixed-layout workflow.
 
 ## Done
+- 2026-11-15 — [x] iPhone Duo merged to `main` at `ad391f9` after Geoff's hands-on trial; the branch is removed.
 - 2026-11-15 — [x] iPad acceptance (Geoff): accepted from iPad Pro 13-inch (M5) simulator captures on iOS 27.2 (MacBook Pro), not a real iPad Pro. Five portrait Muzzletoff screens at 2064 × 2752, rendered as an iPad 13-inch set in the default style and in Calm through the `SampleRenderTests` harness (same renderer as Export; the harness skips the blocking-warning check). Landscape iPad was not part of the check. Evidence: `Dev Workstation/Visual Verification/screenshot builder/2026-11-15-r64-ipad/`.
 - 2026-11-15 — [x] Style tab scroll (spec R6.4): Geoff accepts the scroll. Measured at 1440 × 920; see DECISIONS.
 - 2026-11-15 — [x] iPhone Duo hands-on trial (Geoff): a 9-shot Task(ed) set from the October Duo captures, mixing closed and open shots in portrait and landscape, worked as intended. Not every headline was re-created; frames and fold choice were the check.
