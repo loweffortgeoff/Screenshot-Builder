@@ -42,6 +42,8 @@ struct DeviceSpec: Equatable {
     var hingeScreenRadius: CGFloat? = nil
     /// A round front camera in the screen, in screen coordinates. Closed iPhone Duo only.
     var punchHole: CGRect? = nil
+    /// The bezel color inside the metal band, where it is not black glass. Unfolded iPhone Duo only.
+    var bezelTone: RGBColor? = nil
     // Laptop only: lid chin below the black bezel, the base, and its two rubber feet.
     var chin: CGFloat = 0
     var baseSize: CGSize = .zero
@@ -93,15 +95,16 @@ struct DeviceSpec: Equatable {
         name: "iPhone Duo", family: .foldable, screen: CGSize(width: 2007, height: 2853),
         bezel: Insets(top: 70, left: 62, bottom: 62, right: 62), bodyRadius: 232, screenRadius: 160, band: 12,
         buttons: [Button(side: .left, start: 386, length: 197), Button(side: .left, start: 628, length: 197)],
-        buttonDepth: 8)
+        buttonDepth: 8, bezelTone: RGBColor(0.19, 0.19, 0.2))
 
     /// iPhone Duo folded (outer screen), measured 2026-11-15 from `iPhone Duo - Night Sky - Outer Closed Portrait.png`.
-    /// The hinge is on the left: tighter corners and a wider bezel there. The front camera is a punch hole at the top right.
+    /// The hinge is on the left: tighter corners and a wider bezel there. The diagonal measure gave 80 to 99 on that
+    /// side because it meets the hinge spine; 40 matches the front slab in a 1:1 overlay. The spine itself is not drawn. The front camera is a punch hole at the top right.
     static let duoClosed = DeviceSpec(
         name: "iPhone Duo", family: .foldable, screen: CGSize(width: 1398, height: 2034),
         bezel: Insets(top: 56, left: 77, bottom: 48, right: 48), bodyRadius: 230, screenRadius: 174, band: 12,
         buttons: [Button(side: .right, start: 615, length: 338)], buttonDepth: 9,
-        hingeBodyRadius: 80, hingeScreenRadius: 24,
+        hingeBodyRadius: 40, hingeScreenRadius: 24,
         punchHole: CGRect(x: 1200.5, y: 89, width: 108, height: 108))
 
     static let pad13 = DeviceSpec(

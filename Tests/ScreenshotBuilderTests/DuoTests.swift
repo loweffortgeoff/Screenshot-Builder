@@ -51,4 +51,42 @@ struct DuoTests {
     @Test func duoFinishes() {
         #expect(DeviceFinish.all(for: .foldable).map(\.name) == ["Night Sky", "Star White"])
     }
+
+    // MARK: Frame
+
+    @Test func closedFrameScreenMatchesCapture() throws {
+        let frame = DeviceFrame(spec: .duoClosed, landscape: false, rect: CGRect(origin: .zero, size: DeviceSpec.duoClosed.outer))
+        #expect(frame.screenRect.size == CGSize(width: 1398, height: 2034))
+        let hole = try #require(frame.punchHoleRect)
+        #expect(frame.screenRect.contains(hole))
+        #expect(abs(hole.midX - (frame.screenRect.minX + 1254.5)) < 1 && abs(hole.width - 108) < 1)
+    }
+
+    @Test func landscapeClosedCameraMatchesApple() throws {
+        // Apple's Outer Closed Landscape.png puts the camera at the screen's top left, center (143, 143).
+        let outer = DeviceFrame.outerSize(.duoClosed, landscape: true)
+        let frame = DeviceFrame(spec: .duoClosed, landscape: true, rect: CGRect(origin: .zero, size: outer))
+        let hole = try #require(frame.punchHoleRect)
+        #expect(abs(hole.midX - (frame.screenRect.minX + 143)) < 2 && abs(hole.midY - (frame.screenRect.minY + 143)) < 2)
+    }
+
+    /// Apple's unfolded Duo has a matte dark grey bezel (samples #1D1E20 to #4F5051), not the black glass of other iPhones.
+    @Test func openBezelIsDarkGreyAndClosedStaysBlack() throws {
+        let tone = try #require(DeviceSpec.duoOpen.bezelTone)
+        #expect((0.15...0.25).contains(tone.red) && DeviceSpec.duoClosed.bezelTone == nil && DeviceSpec.proMax.bezelTone == nil)
+    }
+
+    @Test func openFrameHasNoCamera() {
+        let frame = DeviceFrame(spec: .duoOpen, landscape: false, rect: CGRect(origin: .zero, size: DeviceSpec.duoOpen.outer))
+        #expect(frame.punchHoleRect == nil && frame.screenRect.size == CGSize(width: 2007, height: 2853))
+    }
+
+    /// The closed screen's hinge-side corner is tight: a point 30 px in from the top-left corner on the diagonal is on
+    /// the screen, which a uniform 174 radius would cut away.
+    @Test func closedScreenHasTightHingeCorners() {
+        let frame = DeviceFrame(spec: .duoClosed, landscape: false, rect: CGRect(origin: .zero, size: DeviceSpec.duoClosed.outer))
+        let s = frame.screenRect
+        #expect(frame.screenPath.contains(CGPoint(x: s.minX + 30, y: s.minY + 30)))
+        #expect(!frame.screenPath.contains(CGPoint(x: s.maxX - 30, y: s.minY + 30)))
+    }
 }
