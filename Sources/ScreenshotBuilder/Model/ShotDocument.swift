@@ -7,8 +7,9 @@ extension UTType {
 
 struct ShotDocument: FileDocument, Codable {
     static var readableContentTypes: [UTType] { [.shotSet] }
-    /// Version 6 adds the iPhone Duo preset, so older builds refuse Duo files with a clear message.
-    static let currentVersion = 6
+    /// The iPhone Duo preset is a new value, not a format change, so it does not bump the version: older builds open
+    /// every non-Duo file. They cannot decode a Duo file, and show a decode error for it.
+    static let currentVersion = 5
     var version = currentVersion
     var style = SetStyle()
     var shots: [Shot] = []
@@ -21,8 +22,11 @@ struct ShotDocument: FileDocument, Codable {
         self = try Self.decode(data)
     }
     static func decode(_ data: Data) throws -> Self {
+        // Check the version before the full decode: a newer file may hold settings this build cannot decode.
+        struct Header: Decodable { var version: Int }
+        let header = try JSONDecoder().decode(Header.self, from: data)
+        guard (1...currentVersion).contains(header.version) else { throw BuilderError.message("This project needs a newer version of Matte.") }
         let project = try JSONDecoder().decode(Self.self, from: data)
-        guard (1...currentVersion).contains(project.version) else { throw BuilderError.message("This project needs a newer version of Matte.") }
         guard project.shots.count <= 10,
               Set(project.shots.map(\.id)).count == project.shots.count,
               project.style.imageScale.isFinite, (0.5...1).contains(project.style.imageScale),

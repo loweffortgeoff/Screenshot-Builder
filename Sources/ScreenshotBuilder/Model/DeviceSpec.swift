@@ -138,14 +138,15 @@ struct DeviceSpec: Equatable {
         }
     }
 
-    /// The device and its turn for one shot. On iPhone Duo the capture decides: an outer-screen capture
-    /// (1398 × 2034 either way) draws closed, anything else open, and a wide capture turns the device to landscape.
-    /// Other presets use the set's device; the caller applies the set's orientation.
+    /// The device and its turn for one shot. On iPhone Duo the capture decides: a capture shaped like the outer screen
+    /// (1398 × 2034, either way, within 1%, so resized captures count) draws closed, anything else open, and a wide
+    /// capture turns the device to landscape. The two shapes differ by 2.3%. Other presets use the set's device; the
+    /// caller applies the set's orientation.
     static func `for`(_ preset: OutputPreset, capture: CGSize) -> (spec: DeviceSpec, landscape: Bool) {
         guard preset == .duo else { return (self.for(preset), false) }
-        let outer = duoClosed.screen
-        let closed = (capture.width == outer.width && capture.height == outer.height)
-            || (capture.width == outer.height && capture.height == outer.width)
+        let outer = duoClosed.screen.width / duoClosed.screen.height
+        let aspect = min(capture.width, capture.height) / max(capture.width, capture.height, 1)
+        let closed = abs(aspect - outer) / outer <= 0.01
         return (closed ? duoClosed : duoOpen, capture.width > capture.height)
     }
 }

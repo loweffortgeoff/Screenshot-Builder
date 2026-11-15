@@ -44,8 +44,34 @@ struct DuoTests {
         #expect(style.size == CGSize(width: 2868, height: 1320))
     }
 
-    @Test func duoProjectsUseVersion6() {
-        #expect(ShotDocument.currentVersion == 6)
+    /// A file from a newer build can hold settings this build cannot decode (for example a preset it lacks). The version
+    /// is checked first, so the user reads "needs a newer version" instead of a decode error.
+    @Test func newerFileWithUnknownSettingsSaysNewerVersion() throws {
+        let json = #"{"version": 99, "style": {"preset": "somethingNew"}, "shots": []}"#
+        let error = #expect(throws: (any Error).self) { try ShotDocument.decode(Data(json.utf8)) }
+        #expect(error?.localizedDescription == "This project needs a newer version of Matte.")
+    }
+
+    /// The Duo preset is a new enum value, not a format change, so the format stays at 5 and older builds still open
+    /// every non-Duo file this build saves.
+    @Test func duoKeepsFormatVersion5() {
+        #expect(ShotDocument.currentVersion == 5)
+    }
+
+    /// A resized or 1x outer-screen capture still has the closed shape (0.687, against 0.703 open), so it draws closed.
+    @Test func scaledClosedCaptureDrawsClosed() {
+        #expect(DeviceSpec.for(.duo, capture: CGSize(width: 699, height: 1017)).spec == .duoClosed)
+        #expect(DeviceSpec.for(.duo, capture: CGSize(width: 1017, height: 699)) == (.duoClosed, true))
+        #expect(DeviceSpec.for(.duo, capture: CGSize(width: 1003, height: 1426)).spec == .duoOpen)
+    }
+
+    /// Side by side puts a landscape Duo device beside the caption at about 9% of the canvas, so it draws Stacked.
+    @Test func landscapeDuoSideBySideDrawsStacked() throws {
+        var style = SetStyle(); style.preset = .duo; style.composition = .sideBySide
+        #expect(style.effectiveComposition(for: try fixture(CGSize(width: 2853, height: 2007))) == .stacked)
+        #expect(style.effectiveComposition(for: try fixture(CGSize(width: 2007, height: 2853))) == .sideBySide)
+        style.preset = .pad13
+        #expect(style.effectiveComposition(for: try fixture(CGSize(width: 2853, height: 2007))) == .sideBySide)
     }
 
     @Test func duoFinishes() {
