@@ -33,7 +33,7 @@ struct EditorView: View {
             ToolbarItemGroup {
                 Picker(selection: $document.style.preset) {
                     Section("iPhone") {
-                        ForEach([OutputPreset.phone69, .phone65, .phone63, .phone61, .phone55]) { Text($0.title).tag($0) }
+                        ForEach([OutputPreset.phone69, .phone65, .phone63, .phone61, .phone55, .duo]) { Text($0.title).tag($0) }
                     }
                     Section("iPad") {
                         ForEach([OutputPreset.pad13, .pad129, .pad11]) { Text($0.title).tag($0) }
