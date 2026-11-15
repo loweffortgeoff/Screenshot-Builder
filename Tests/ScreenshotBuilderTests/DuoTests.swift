@@ -70,8 +70,36 @@ struct DuoTests {
         var style = SetStyle(); style.preset = .duo; style.composition = .sideBySide
         #expect(style.effectiveComposition(for: try fixture(CGSize(width: 2853, height: 2007))) == .stacked)
         #expect(style.effectiveComposition(for: try fixture(CGSize(width: 2007, height: 2853))) == .sideBySide)
+        // iPad turns the device the same way, so a wide capture on a portrait iPad canvas also draws Stacked.
         style.preset = .pad13
-        #expect(style.effectiveComposition(for: try fixture(CGSize(width: 2853, height: 2007))) == .sideBySide)
+        #expect(style.effectiveComposition(for: try fixture(CGSize(width: 2752, height: 2064))) == .stacked)
+        #expect(style.effectiveComposition(for: try fixture(CGSize(width: 2064, height: 2752))) == .sideBySide)
+        style.landscape = true
+        #expect(style.effectiveComposition(for: try fixture(CGSize(width: 2752, height: 2064))) == .sideBySide)
+    }
+
+    // MARK: iPad follows the capture
+
+    /// iPad turns the device from the capture, whatever the canvas orientation. iPhone and Mac still follow the set.
+    @Test func iPadDeviceFollowsCapture() throws {
+        let wide = CGSize(width: 2752, height: 2064), tall = CGSize(width: 2064, height: 2752)
+        #expect(DeviceSpec.for(.pad13, capture: wide).landscape == true)
+        #expect(DeviceSpec.for(.pad11, capture: tall).landscape == false)
+        #expect(DeviceSpec.for(.phone69, capture: wide).landscape == nil)
+        #expect(DeviceSpec.for(.mac, capture: wide).landscape == nil)
+        for canvasLandscape in [false, true] {
+            var style = SetStyle(); style.preset = .pad13; style.landscape = canvasLandscape
+            for (capture, turned) in [(wide, true), (tall, false)] {
+                let shot = try fixture(capture)
+                let c = ShotRenderer.compose(shot: shot, style: style, sourceSize: capture)
+                let front = try #require(c.layers.last)
+                #expect(front.device?.landscape == turned, "canvas landscape \(canvasLandscape), \(capture)")
+                #expect(CGRect(origin: .zero, size: style.size).insetBy(dx: -0.5, dy: -0.5).contains(front.bounds),
+                        "canvas landscape \(canvasLandscape), \(capture)")
+                #expect(!ShotRenderer.warnings(shot: shot, style: style).contains { $0.contains("black bars") },
+                        "canvas landscape \(canvasLandscape), \(capture)")
+            }
+        }
     }
 
     @Test func duoFinishes() {

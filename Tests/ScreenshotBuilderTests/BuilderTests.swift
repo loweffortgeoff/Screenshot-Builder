@@ -1674,8 +1674,10 @@ struct BuilderTests {
                         let device = try #require(c.layers.last, "\(label)").bounds
                         let canvas = CGRect(origin: .zero, size: style.size)
                         // The band keeps the widest word whole, so a Duo front device at a small Size (about 0.4 of the canvas
-                        // wide) gets a band slightly wider than itself. Every other case sits inside the device.
-                        let tooSmallForTheWords = arrangement == .duo && scale <= 0.6
+                        // wide) gets a band slightly wider than itself. So does an upright iPad (a portrait capture) on a
+                        // landscape iPad canvas at a small Size (about 0.25 of the canvas wide). Every other case sits inside the device.
+                        let uprightPadOnWideCanvas = landscape && DeviceSpec.for(preset).family == .pad && scale <= 0.6
+                        let tooSmallForTheWords = (arrangement == .duo && scale <= 0.6) || uprightPadOnWideCanvas
                         if !tooSmallForTheWords {
                             #expect(panel.minX >= device.minX - 1 && panel.maxX <= device.maxX + 1, "\(label) panel \(panel) device \(device)")
                         }
