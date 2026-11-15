@@ -1,8 +1,7 @@
 # TODO
 
 ## Next
-- Chapter 4 open call (Geoff): the Style tab still scrolls at 1440 × 920 (spec R6.4 not met). Keep it, or move the shot section to its own place.
-- iPad acceptance: not tested by Geoff (2026-11-14, no iPad Pro on hand). iPad output can be checked with iPad Pro simulator captures; Geoff's acceptance stays open.
+- Nothing open. Pick the next item from the backlog with Geoff.
 
 ## Backlog
 - Local MCP: explore a local MCP server so Geoff's agents can run the app. Added by Geoff 2026-11-15; exploration only, no scope or version chosen.
@@ -14,6 +13,8 @@
 - Outside v1: freeform editing, layers, stickers, AI copy, localization management, and direct upload. These do not serve the initial fixed-layout workflow.
 
 ## Done
+- 2026-11-15 — [x] iPad acceptance (Geoff): accepted from iPad Pro 13-inch (M5) simulator captures on iOS 27.2 (MacBook Pro), not a real iPad Pro. Five portrait Muzzletoff screens at 2064 × 2752, rendered as an iPad 13-inch set in the default style and in Calm through the `SampleRenderTests` harness (same renderer as Export; the harness skips the blocking-warning check). Landscape iPad was not part of the check. Evidence: `Dev Workstation/Visual Verification/screenshot builder/2026-11-15-r64-ipad/`.
+- 2026-11-15 — [x] Style tab scroll (spec R6.4): Geoff accepts the scroll. Measured at 1440 × 920; see DECISIONS.
 - 2026-11-15 — [x] iPhone Duo hands-on trial (Geoff): a 9-shot Task(ed) set from the October Duo captures, mixing closed and open shots in portrait and landscape, worked as intended. Not every headline was re-created; frames and fold choice were the check.
 - 2026-11-15 — [x] iPhone Duo device on `feature/iphone-duo`: a 2007 × 2853 size, a drawn open and closed frame measured from Apple's Duo PNGs, and a per-shot frame choice from the capture size. Tucked Duo set rebuilt in Matte for visual acceptance. Not merged.
 - 2026-11-14 — Chapter 4 hands-on check passed (Geoff, 29 of 30 items; his question on the scope headers answered: they are labels, not controls). Merged to `main` by fast-forward at `69a6012`; branch and worktree removed.
