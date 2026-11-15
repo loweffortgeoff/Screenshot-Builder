@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- iPad: each shot turns the device from its capture. A landscape capture draws a landscape iPad, and a portrait capture draws a portrait iPad, on either canvas. The Portrait/Landscape toolbar control now sets only the export size. A landscape iPad on a portrait canvas set to Side by side draws Stacked.
 - iPhone Duo (merged to `main` 2026-11-15, `ad391f9`): a new 2007 × 2853 output size with a drawn Duo frame in Night Sky or Star White. Each shot draws the Duo open or closed, in portrait or landscape, from its capture size, so one set can mix them. The closed Duo has its punch-hole camera and tight hinge-side corners; the open Duo has its matte grey bezel. Duo output is portrait only, and a landscape Duo shot set to Side by side draws Stacked. The project format stays at version 5; Matte now checks a file's version before reading it, so a file from a newer build says it needs a newer version.
 - Added an app icon: a flat champagne mat framing a cream screen on charcoal, clipped to an 824-point macOS art box. `scripts/make-icon.py` builds `Resources/Matte.icns` from a square render, and `scripts/build-app.sh` copies it in.
 - Renamed the app's display name from Screenshot Builder to Matte (`.app`, menu bar, and in-app strings). The bundle identifier and the `.shotset` type stay as they were, so existing projects keep their file association.

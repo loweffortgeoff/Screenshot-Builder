@@ -138,16 +138,21 @@ struct DeviceSpec: Equatable {
         }
     }
 
-    /// The device and its turn for one shot. On iPhone Duo the capture decides: a capture shaped like the outer screen
-    /// (1398 × 2034, either way, within 1%, so resized captures count) draws closed, anything else open, and a wide
-    /// capture turns the device to landscape. The two shapes differ by 2.3%. Other presets use the set's device; the
-    /// caller applies the set's orientation.
-    static func `for`(_ preset: OutputPreset, capture: CGSize) -> (spec: DeviceSpec, landscape: Bool) {
-        guard preset == .duo else { return (self.for(preset), false) }
+    /// The device and its turn for one shot. On iPhone Duo and iPad the capture turns the device: a wide capture draws
+    /// the device in landscape, a tall one in portrait, whatever the canvas orientation. On iPhone Duo the capture also
+    /// picks the frame: a capture shaped like the outer screen (1398 × 2034, either way, within 1%, so resized captures
+    /// count) draws closed, anything else open. The two shapes differ by 2.3%. Other presets return `nil` for the turn,
+    /// and the caller applies the set's orientation.
+    static func `for`(_ preset: OutputPreset, capture: CGSize) -> (spec: DeviceSpec, landscape: Bool?) {
+        let wide = capture.width > capture.height
+        guard preset == .duo else {
+            let spec = self.for(preset)
+            return (spec, spec.family == .pad ? wide : nil)
+        }
         let outer = duoClosed.screen.width / duoClosed.screen.height
         let aspect = min(capture.width, capture.height) / max(capture.width, capture.height, 1)
         let closed = abs(aspect - outer) / outer <= 0.01
-        return (closed ? duoClosed : duoOpen, capture.width > capture.height)
+        return (closed ? duoClosed : duoOpen, wide)
     }
 }
 

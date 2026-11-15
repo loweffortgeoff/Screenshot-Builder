@@ -435,7 +435,8 @@ enum ShotRenderer {
         let captionHeight = hasCaption ? (group?.height ?? (stacksCaption ? metrics.maxBand + rowsExtra : needed + rowsExtra)) : 0
         let separation = hasCaption ? metrics.separation : 0
         let top = margin * 1.25
-        // On iPhone Duo each capture picks the frame (open or closed) and turns the device; elsewhere the set decides.
+        // On iPhone Duo each capture picks the frame (open or closed). On iPhone Duo and iPad the capture turns the device;
+        // elsewhere the set decides.
         let pick = DeviceSpec.for(style.preset, capture: sourceSize)
         let spec = pick.spec
         // iPhone Duo uses the iPad layout: its canvas (0.70) and devices are close to iPad proportions (0.75).
@@ -511,7 +512,7 @@ enum ShotRenderer {
             let y = style.layout == .bleedBottom ? available.minY + inset : available.maxY - inset - height
             return CGRect(x: available.midX - width / 2, y: y, width: width, height: height)
         }
-        let rotatedDevice = style.preset == .duo ? pick.landscape : style.isLandscape
+        let rotatedDevice = pick.landscape ?? style.isLandscape
         // Duo needs a second capture; without one (a one-shot set) the shot draws as Standard. Text only has no device.
         let arrangement: Arrangement = !hasDevice || (shot.arrangement == .duo && companionSize == nil) ? .standard : shot.arrangement
         let companionSize = companionSize ?? sourceSize
