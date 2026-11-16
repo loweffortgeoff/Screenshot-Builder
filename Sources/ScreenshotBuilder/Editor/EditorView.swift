@@ -106,10 +106,16 @@ struct EditorView: View {
             case .failure(let error): message = error.localizedDescription
             }
         }
-        .dropDestination(for: URL.self) { urls, _ in
-            guard !urls.isEmpty else { return false }
+        // Item providers, not URL.self: a drag from a sandboxed app can carry an unreadable file URL plus the image data.
+        .onDrop(of: DroppedImage.acceptedTypes, isTargeted: nil) { providers in
+            guard !providers.isEmpty else { return false }
             replacing = nil
-            importURLs(urls)
+            Task { @MainActor in
+                do {
+                    let shots = try await DroppedImage.shots(from: providers)
+                    importShots { shots }
+                } catch { message = error.localizedDescription }
+            }
             return true
         }
         .confirmationDialog("Remove this screenshot?", isPresented: Binding(get: { removal != nil }, set: { if !$0 { removal = nil } }), titleVisibility: .visible) {
@@ -270,10 +276,15 @@ struct EditorView: View {
         document.shots.swapAt(index, index + offset)
     }
     private func importURLs(_ urls: [URL]) {
+        importShots { try urls.map(Shot.importing) }
+    }
+
+    /// Adds decoded shots, or replaces the selected shot when `replacing` is set.
+    private func importShots(_ decode: () throws -> [Shot]) {
         defer { replacing = nil }
         do {
-            if let replacing, let index = document.shots.firstIndex(where: { $0.id == replacing }), let url = urls.first {
-                let replacement = try Shot.importing(url)
+            if let replacing, let index = document.shots.firstIndex(where: { $0.id == replacing }) {
+                guard let replacement = try decode().first else { return }
                 document.shots[index].imageData = replacement.imageData
                 document.shots[index].name = replacement.name
                 // A custom Zoom region was snapped to the old capture's rows; on a new capture it could cut text.
@@ -282,11 +293,11 @@ struct EditorView: View {
                     document.shots[index].calloutRect = nil
                 }
             } else {
-                guard document.shots.count + urls.count <= 10 else {
+                // Decode the whole import before changing the document.
+                let shots = try decode()
+                guard document.shots.count + shots.count <= 10 else {
                     throw BuilderError.message("Each App Store set can contain up to 10 screenshots. Import fewer images or start a new set.")
                 }
-                // Decode the whole import before changing the document.
-                let shots = try urls.map(Shot.importing)
                 document.shots.append(contentsOf: shots)
                 selection = shots.first?.id ?? selection
             }
