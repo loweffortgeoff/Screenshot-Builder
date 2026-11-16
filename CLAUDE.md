@@ -2,6 +2,9 @@
 
 Read `README.md` first. Global rules are in `~/.claude/CLAUDE.md`.
 
+## Installed copy
+- `scripts/build-app.sh` updates only `build/Matte.app`. Geoff runs `/Applications/Matte.app`, which stays old until he runs `ditto build/Matte.app /Applications/Matte.app`. Before a manual test, check which binary runs with `pgrep -lf MacOS/ScreenshotBuilder` (2026-11-16).
+
 ## Live window captures
 - `scripts/capture-window.sh` fails from a Claude Code shell with "could not create image from window": the shell has no Screen Recording permission (MacBook Pro, 2026-11-15; not checked on the Mac mini).
 - Instead, open the project with `open -n -a build/Matte.app <project.shotset>`, then capture with the computer-use `app_screenshot` tool on bundle ID `com.loweffortapps.screenshotbuilder` (request access first). This works in the background.
